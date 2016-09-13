@@ -15,7 +15,6 @@ typedef struct vec_t {
 /* VECTOR DATA STRUCTURE IMPLEMENTATION */
 int vec_init(vec_t *, const size_t);
 int vec_push(vec_t *, const void *);
-void vec_pop(vec_t *);
 void vec_clear(vec_t *, void (*)(void *));
 void vec_free(vec_t * p_vec, void (*)(void *));
 
@@ -33,7 +32,7 @@ void lexer_parse_buffer(char *);
 void shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
 void launch_process(char **, bool);
-char ** make_argv(vec_t *);
+char ** make_argv(vec_t *, const size_t, const size_t);
 
 void vec_clear_policy(void * vec) {
 	vec_t * p_vec = vec;
@@ -66,23 +65,28 @@ void shell_read(char * buffer, vec_t * p_vec) {
     lexer_parse_buffer(buffer);
 }
 
-char ** make_argv(vec_t * p_vec) {
-    size_t new_len = p_vec->insert_pos * sizeof(char *) + sizeof(char *);
-	char ** argv = malloc(new_len);
-	memcpy(argv, p_vec->data, new_len - sizeof(char *));
-	argv[p_vec->insert_pos] = NULL;
-	return argv;
-}
+typedef struct command_t {
+	char ** argv;
+} command_t;
 
 void shell_eval(vec_t * p_vec) {
-	/* TODO: this does not support piping, multiple commands, etc... */
-	char ** argv = make_argv(p_vec);
+	/* TODO: create a data structure */
+	char ** argv = make_argv(p_vec, 0, p_vec->insert_pos);
 	if (!argv) {
 		puts("Error: malloc failed");
 		return;
 	}
 	launch_process(argv, true);
 	free(argv);
+}
+
+char ** make_argv(vec_t * p_vec, const size_t start_pos, const size_t end_pos) {
+	const size_t cp_size = sizeof(char *);
+	const size_t len = end_pos - start_pos + 1;
+	char ** argv = malloc(len);
+	memcpy(argv, p_vec->data + start_pos, len - cp_size);
+	argv[len - cp_size] = NULL;
+	return argv;
 }
 
 void launch_process(char ** argv, bool wait) {
@@ -136,10 +140,6 @@ int vec_push(vec_t * p_vec, const void * p_element) {
 		p_vec->len *= vec_growth_rate;
 	}
 	return 1;
-}
-
-void vec_pop(vec_t * p_vec) {
-	memset(p_vec->data + (p_vec->insert_pos - 1) * p_vec->elem_size, 0, p_vec->elem_size);
 }
 
 void vec_clear(vec_t * p_vec, void (* policy)(void *)) {

@@ -1,11 +1,12 @@
 CC = gcc
 CFLAGS = -Wall -Werror -pedantic -std=c99 -O2 
+BINARY = myshell
 
-all: shell.o
-	$(CC) shell.o -o shell
+all: myshell.o
+	$(CC) myshell.o -o myshell
 
-shell.o: shell.c
-	$(CC) shell.c $(CFLAGS) -c -o shell.o
+myshell.o: myshell.c
+	$(CC) myshell.c $(CFLAGS) -c -o myshell.o
 
 clean:
 	rm *.o

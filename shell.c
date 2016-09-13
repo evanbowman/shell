@@ -14,9 +14,9 @@ int main(void) {
 	vec_t argv;
 	vec_init(&argv, sizeof(char *));
 	lexer_set_argv(&argv);
-	memset(buffer, '\0', read_buffer_size);
 	puts("my_shell");
 	while (true) {
+		memset(buffer, '\0', read_buffer_size);
 		shell_read(buffer, &argv);
 		shell_eval(&argv);
 		vec_clear(&argv, vec_clear_policy);
@@ -34,10 +34,10 @@ void shell_read(char * buffer, vec_t * p_vec) {
 void shell_eval(vec_t * p_vec) {
 	/* eval the text... */
 	/* TEMPORARY!! */
-	char ** argv = (char **)p_vec->data;
-	for (size_t i = 0; i < p_vec->insert_pos; i++) {
-		printf("%s\n", argv[i]);
-	}
+	/* char ** argv = (char **)p_vec->data; */
+	/* for (size_t i = 0; i < p_vec->insert_pos; i++) { */
+	/* 	printf("%s\n", argv[i]); */
+	/* } */
 }
 
 void launch_process(const char * proc_name, vec_t * p_vec, bool wait) {
@@ -98,8 +98,8 @@ void vec_pop(vec_t * p_vec) {
 }
 
 void vec_clear(vec_t * p_vec, void (* policy)(void *)) {
-	p_vec->insert_pos = 0;
     policy(p_vec);
+	p_vec->insert_pos = 0;
 }
 
 void vec_free(vec_t * p_vec, void (* policy)(void *)) {

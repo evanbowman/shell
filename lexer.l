@@ -4,16 +4,17 @@ vec_t * p_global_argv;
 %}
 
 %option noyywrap
+%option nounput
+%option noinput
 
 %%
-"<"               printf("LREDIR\n");
-">"               printf("RREDIR\n");
-"|"               printf("PIPE\n");
-"&"               printf("BKGPROC\n");
+"<"|">"|"|"|"&"   {
+                      char * tok = strdup(yytext);
+                      vec_push(p_global_argv, &tok);
+                  }
 [a-zA-Z0-9_/.-]+  {
-                      printf("EXPRN\n");
-                      /* char * tok = strdup(yytext); */
-                      /* vec_push(p_global_argv, &tok); */
+                      char * tok = strdup(yytext);
+                      vec_push(p_global_argv, &tok);
                   }
 %%
 

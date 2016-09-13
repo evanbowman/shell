@@ -591,9 +591,6 @@ int yy_flex_debug = 0;
 #define YY_MORE_ADJ 0
 #define YY_RESTORE_YY_MORE_OFFSET
 char *yytext;
-#line 1 "lexer.l"
-#line 2 "lexer.l"
-#include "shell.h"
 vec_t * p_global_argv;
 #define YY_NO_INPUT 1
 #line 459 "lex.yy.c"

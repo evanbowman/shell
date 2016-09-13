@@ -1,5 +1,4 @@
 %{
-#include "shell.h"
 vec_t * p_global_argv;
 %}
 

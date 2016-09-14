@@ -31,8 +31,10 @@ void lexer_parse_buffer(char *);
 /* CORE SHELL IMPLEMENTATION */
 void shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
-void launch_process(char **, bool);
+void launch_process(char **, bool, char *, char *);
 char ** make_argv(vec_t *, const size_t, const size_t);
+void parse_single_command(vec_t *);
+void parse_multiple_commands(vec_t *);
 
 void arg_vec_clear_policy(void * vec) {
 	vec_t * p_vec = vec;
@@ -81,64 +83,73 @@ void command_vec_clear_policy(void * vec) {
 }
 
 void shell_eval(vec_t * p_vec) {
-    char ** vec_contents = (char **)p_vec->data;
-	size_t command_begin = 0;
-	command_t command;
-	vec_t command_vec;
-	vec_init(&command_vec, sizeof(command));
-	memset(&command, 0, sizeof(command));
-	for (size_t idx = 0; idx < p_vec->insert_pos; idx++) {
+	char ** vec_contents = (char **)p_vec->data;
+	/* check if there are multiple commands in the input line */
+	int num_commands = 1;
+	for (size_t idx = 0; idx < p_vec->insert_pos; idx += 1) {
+		char first_char = vec_contents[idx][0];
+		if (first_char == '&' || first_char == '|') num_commands += 1;
+	}
+    switch (num_commands) {
+	case 1:
+		parse_single_command(p_vec);
+		break;
+
+	default:
+	    parse_multiple_commands(p_vec);
+		break;
+	}
+}
+
+void parse_single_command(vec_t * p_vec) {
+	char ** vec_contents = (char **)p_vec->data;
+	char ** argv = NULL;
+	char * dest = NULL;
+	char * src = NULL;
+	if (p_vec->insert_pos == 0) return;
+	bool seen_command = false;
+	for (size_t idx = 0; idx < p_vec->insert_pos; idx += 1) {
 		switch (vec_contents[idx][0]) {
 		case '<':
-			if (!command.src && idx + 1 < p_vec->insert_pos && idx > command_begin) {
-				command.src = vec_contents[idx + 1];
-				command.argv = make_argv(p_vec, command_begin, idx - 1);
-				vec_push(&command_vec, &command);
-				memset(&command, 0, sizeof(command));
-				/* file name copied to vector, lets skip it... */
-				idx += 1;
-				command_begin = idx + 1;
-			} else {
-				puts("Redirect failed");
+			if (!argv) {
+				argv = make_argv(p_vec, 0, idx - 1);
+			}
+			if (idx + 1 == p_vec->insert_pos) {
+				if (argv) free(argv);
+				puts("Error: expected expression after <");
 				return;
 			}
+			src = vec_contents[idx + 1];
+			idx += 1;
 			break;
 			
 		case '>':
-			if (!command.dest && idx + 1 < p_vec->insert_pos && idx > command_begin) {
-				command.dest = vec_contents[idx + 1];
-				command.argv = make_argv(p_vec, command_begin, idx - 1);
-				vec_push(&command_vec, &command);
-				memset(&command, 0, sizeof(command));
-				idx += 1;
-				command_begin = idx + 1;
-			} else {
-				puts("Redirect failed");
+			if (!argv) {
+				argv = make_argv(p_vec, 0, idx - 1);
+			}
+			if (idx + 1 == p_vec->insert_pos) {
+				if (argv) free(argv);
+				puts("Error: expected expression after >");
 				return;
 			}
+			dest = vec_contents[idx + 1];
+			idx += 1;
 			break;
 			
-		case '|':
-			puts("Pipes not yet supported");
-			return;
-			
-		case '&':
-			puts("Bkg processes not yet supported");
-		    return;
-			
 		default:
-			if (idx + 1 == p_vec->insert_pos) {
-				command.argv = make_argv(p_vec, command_begin, idx);
-				vec_push(&command_vec, &command);
+			if (idx + 1 == p_vec->insert_pos && !seen_command) {
+				argv = make_argv(p_vec, 0, idx);
+				seen_command = true;
 			}
 			break;
 		}
 	}
-	command_t * commands = (command_t *)command_vec.data;
-	for (size_t idx = 0; idx < command_vec.insert_pos; idx++) {
-		launch_process(commands[idx].argv, true);
-	}
-	vec_free(&command_vec, command_vec_clear_policy);
+	launch_process(argv, true, dest, src);
+	free(argv);
+}
+
+void parse_multiple_commands(vec_t * p_vec) {
+	//...
 }
 
 char ** make_argv(vec_t * p_vec, const size_t start_pos, const size_t end_pos) {
@@ -150,7 +161,7 @@ char ** make_argv(vec_t * p_vec, const size_t start_pos, const size_t end_pos) {
 	return argv;
 }
 
-void launch_process(char ** argv, bool wait) {
+void launch_process(char ** argv, bool wait, char * dest, char * src) {
 	enum pid_kind {
 		child = 0,
 		error = -1
@@ -159,6 +170,22 @@ void launch_process(char ** argv, bool wait) {
 	int status;
 	switch (pid) {
 	case child:
+		if (dest) {
+			FILE * p_target = fopen(dest, "w");
+			fclose(stdout);
+			dup2(fileno(p_target), STDOUT_FILENO);
+			if (p_target) {
+				fclose(p_target);
+			}
+		}
+		if (src) {
+			FILE * p_source = fopen(src, "r");
+			fclose(stdin);
+			dup2(fileno(p_source), STDIN_FILENO);
+			if (p_source) {
+				fclose(p_source);
+			}
+		}
 		execvp(argv[0], argv);
 		perror("exec");
 		break;

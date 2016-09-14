@@ -34,7 +34,7 @@ void shell_eval(vec_t *);
 void launch_process(char **, bool);
 char ** make_argv(vec_t *, const size_t, const size_t);
 
-void vec_clear_policy(void * vec) {
+void arg_vec_clear_policy(void * vec) {
 	vec_t * p_vec = vec;
 	char ** argv = (char **)p_vec->data;
 	for (size_t i = 0; i < p_vec->insert_pos; i++) {
@@ -53,9 +53,9 @@ int main(void) {
 		memset(buffer, '\0', read_buffer_size);
 		shell_read(buffer, &argv);
 		shell_eval(&argv);
-		vec_clear(&argv, vec_clear_policy);
+		vec_clear(&argv, arg_vec_clear_policy);
 	}
-	vec_free(&argv, vec_clear_policy);
+	vec_free(&argv, arg_vec_clear_policy);
 	return 0;
 }
 
@@ -67,25 +67,86 @@ void shell_read(char * buffer, vec_t * p_vec) {
 
 typedef struct command_t {
 	char ** argv;
+	char * dest, * src;
 } command_t;
 
-void shell_eval(vec_t * p_vec) {
-	/* TODO: create a data structure */
-	char ** argv = make_argv(p_vec, 0, p_vec->insert_pos);
-	if (!argv) {
-		puts("Error: malloc failed");
-		return;
+void command_vec_clear_policy(void * vec) {
+	vec_t * p_vec = vec;
+	command_t * commands = (command_t *)p_vec->data;
+	for (size_t i = 0; i < p_vec->insert_pos; i++) {
+		if (commands[i].argv) {
+			free(commands[i].argv);
+		}
 	}
-	launch_process(argv, true);
-	free(argv);
+}
+
+void shell_eval(vec_t * p_vec) {
+    char ** vec_contents = (char **)p_vec->data;
+	size_t command_begin = 0;
+	command_t command;
+	vec_t command_vec;
+	vec_init(&command_vec, sizeof(command));
+	memset(&command, 0, sizeof(command));
+	for (size_t idx = 0; idx < p_vec->insert_pos; idx++) {
+		switch (vec_contents[idx][0]) {
+		case '<':
+			if (!command.src && idx + 1 < p_vec->insert_pos && idx > command_begin) {
+				command.src = vec_contents[idx + 1];
+				command.argv = make_argv(p_vec, command_begin, idx - 1);
+				vec_push(&command_vec, &command);
+				memset(&command, 0, sizeof(command));
+				/* file name copied to vector, lets skip it... */
+				idx += 1;
+				command_begin = idx + 1;
+			} else {
+				puts("Redirect failed");
+				return;
+			}
+			break;
+			
+		case '>':
+			if (!command.dest && idx + 1 < p_vec->insert_pos && idx > command_begin) {
+				command.dest = vec_contents[idx + 1];
+				command.argv = make_argv(p_vec, command_begin, idx - 1);
+				vec_push(&command_vec, &command);
+				memset(&command, 0, sizeof(command));
+				idx += 1;
+				command_begin = idx + 1;
+			} else {
+				puts("Redirect failed");
+				return;
+			}
+			break;
+			
+		case '|':
+			puts("Pipes not yet supported");
+			return;
+			
+		case '&':
+			puts("Bkg processes not yet supported");
+		    return;
+			
+		default:
+			if (idx + 1 == p_vec->insert_pos) {
+				command.argv = make_argv(p_vec, command_begin, idx);
+				vec_push(&command_vec, &command);
+			}
+			break;
+		}
+	}
+	command_t * commands = (command_t *)command_vec.data;
+	for (size_t idx = 0; idx < command_vec.insert_pos; idx++) {
+		launch_process(commands[idx].argv, true);
+	}
+	vec_free(&command_vec, command_vec_clear_policy);
 }
 
 char ** make_argv(vec_t * p_vec, const size_t start_pos, const size_t end_pos) {
 	const size_t cp_size = sizeof(char *);
-	const size_t len = end_pos - start_pos + 1;
+	const size_t len = (end_pos + 2 - start_pos) * cp_size;
 	char ** argv = malloc(len);
-	memcpy(argv, p_vec->data + start_pos, len - cp_size);
-	argv[len - cp_size] = NULL;
+	memcpy(argv, p_vec->data + start_pos * cp_size, len - cp_size);
+	argv[len / cp_size - 1] = NULL;
 	return argv;
 }
 

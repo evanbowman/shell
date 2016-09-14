@@ -1,6 +1,7 @@
 #include <sys/wait.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
@@ -29,10 +30,10 @@ void lexer_set_argv(vec_t *);
 void lexer_parse_buffer(char *);
 
 /* CORE SHELL IMPLEMENTATION */
-void shell_read(char *, vec_t *);
+char * shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
 void launch_process(char **, bool, char *, char *);
-char ** make_argv(vec_t *, const size_t, const size_t);
+char ** slice_argv_from_vec(vec_t *, const size_t, const size_t);
 void parse_single_command(vec_t *);
 void parse_multiple_commands(vec_t *);
 
@@ -53,7 +54,7 @@ int main(void) {
 	puts("my_shell");
 	while (true) {
 		memset(buffer, '\0', read_buffer_size);
-		shell_read(buffer, &argv);
+		if (!shell_read(buffer, &argv)) break;
 		shell_eval(&argv);
 		vec_clear(&argv, arg_vec_clear_policy);
 	}
@@ -61,10 +62,13 @@ int main(void) {
 	return 0;
 }
 
-void shell_read(char * buffer, vec_t * p_vec) {
+char * shell_read(char * buffer, vec_t * p_vec) {
+	char * rc = NULL;
 	printf(">> ");
-	fgets(buffer, read_buffer_size, stdin);
+	/* if fgets finds an EOF, quit the shell */
+	rc = fgets(buffer, read_buffer_size, stdin);
     lexer_parse_buffer(buffer);
+	return rc;
 }
 
 typedef struct command_t {
@@ -112,7 +116,7 @@ void parse_single_command(vec_t * p_vec) {
 		switch (vec_contents[idx][0]) {
 		case '<':
 			if (!argv) {
-				argv = make_argv(p_vec, 0, idx - 1);
+				argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
 			if (idx + 1 == p_vec->insert_pos) {
 				if (argv) free(argv);
@@ -125,7 +129,7 @@ void parse_single_command(vec_t * p_vec) {
 			
 		case '>':
 			if (!argv) {
-				argv = make_argv(p_vec, 0, idx - 1);
+				argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
 			if (idx + 1 == p_vec->insert_pos) {
 				if (argv) free(argv);
@@ -138,7 +142,7 @@ void parse_single_command(vec_t * p_vec) {
 			
 		default:
 			if (idx + 1 == p_vec->insert_pos && !seen_command) {
-				argv = make_argv(p_vec, 0, idx);
+				argv = slice_argv_from_vec(p_vec, 0, idx);
 				seen_command = true;
 			}
 			break;
@@ -152,7 +156,9 @@ void parse_multiple_commands(vec_t * p_vec) {
 	//...
 }
 
-char ** make_argv(vec_t * p_vec, const size_t start_pos, const size_t end_pos) {
+char ** slice_argv_from_vec(vec_t * p_vec,
+							const size_t start_pos,
+							const size_t end_pos) {
 	const size_t cp_size = sizeof(char *);
 	const size_t len = (end_pos + 2 - start_pos) * cp_size;
 	char ** argv = malloc(len);

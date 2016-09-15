@@ -74,6 +74,7 @@ char * shell_read(char * buffer, vec_t * p_vec) {
 typedef struct command_t {
 	char ** argv;
 	char * dest, * src;
+	bool is_bkg_proc;
 } command_t;
 
 void command_vec_clear_policy(void * vec) {
@@ -152,8 +153,74 @@ void parse_single_command(vec_t * p_vec) {
 	free(argv);
 }
 
+/* this function is long, but not deeply nested and fairly straightforward... */
 void parse_multiple_commands(vec_t * p_vec) {
-	//...
+	char ** arg_vec_contents = (char **) p_vec->data;
+	vec_t command_vec;
+	vec_init(&command_vec, sizeof(command_t));
+	command_t current_command;
+	memset(&current_command, 0, sizeof(command_t));
+	char current_first_character = arg_vec_contents[0][0];
+	size_t command_start_idx = 0;
+	/* seek the end of the first command */
+	size_t idx = 0;
+	while (current_first_character != '|' &&
+		   current_first_character != '<' &&
+		   current_first_character != '&') {
+		idx += 1;
+		current_first_character = arg_vec_contents[idx][0];
+	}
+	current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
+	if (current_first_character == '<' && idx + 3 < p_vec->insert_pos) {
+	    current_command.src = arg_vec_contents[idx + 1];
+		/* skip the file name, as well as the anticipated pipe */
+		idx += 2;
+	}
+	idx += 1;
+	command_start_idx = idx;
+	vec_push(&command_vec, &current_command);
+	memset(&current_command, 0, sizeof(command_t));
+	bool seen_command = false;
+	for (; idx < p_vec->insert_pos; idx += 1) {
+		switch (arg_vec_contents[idx][0]) {
+		case '|':
+			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
+			command_start_idx = idx + 1;
+			vec_push(&command_vec, &current_command);
+			memset(&current_command, 0, sizeof(command_t));
+			seen_command = false;
+			break;
+
+		case '>':
+			printf("Output redirection unsupported...\n");
+			return;
+
+		case '&':
+			printf("Bkg commands unsupported...\n");
+			return;
+
+		default:
+			seen_command = true;
+			break;
+		}
+	}
+	if (seen_command) {
+		current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
+		vec_push(&command_vec, &current_command);
+	}
+	command_t * commands = (command_t *)command_vec.data;
+	for (size_t i = 0; i < command_vec.insert_pos; i += 1) {
+		if (commands[i].argv) {
+		    char ** argv = commands[i].argv;
+			int j = 0;
+			while (argv[j] != NULL) {
+				printf("%s ", argv[j]);
+				j += 1;
+			}
+			printf("\n");
+		}
+	}
+	vec_free(&command_vec, command_vec_clear_policy);
 }
 
 char ** slice_argv_from_vec(vec_t * p_vec,

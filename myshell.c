@@ -38,7 +38,7 @@ typedef struct command_t {
 /* CORE SHELL IMPLEMENTATION */
 char * shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
-void launch_process(command_t *);
+void launch_process(command_t *, const int, int[]);
 void launch_process_chain(vec_t *);
 void parse_single_command(vec_t *, command_t *);
 void parse_multiple_commands(vec_t * restrict, vec_t * restrict);
@@ -66,12 +66,13 @@ int main(void) {
 		vec_clear(&argv, arg_vec_clear_policy);
 	}
 	vec_free(&argv, arg_vec_clear_policy);
+	puts("");
 	return 0;
 }
 
 char * shell_read(char * buffer, vec_t * p_vec) {
 	char * rc = NULL;
-	printf(">> ");
+	printf("shell$ > ");
 	/* if fgets finds an EOF, quit the shell */
 	rc = fgets(buffer, read_buffer_size, stdin);
     lexer_parse_buffer(buffer);
@@ -88,6 +89,10 @@ void command_vec_clear_policy(void * vec) {
 	}
 }
 
+static const int PIPE_OUT = 0x0001;
+static const int PIPE_IN = 0x0002;
+static const int PIPE_NONE = 0x0000;
+
 void shell_eval(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
 	/* check if there are multiple commands in the input line */
@@ -96,17 +101,20 @@ void shell_eval(vec_t * p_vec) {
 		char first_char = vec_contents[idx][0];
 		if (first_char == '&' || first_char == '|') num_commands += 1;
 	}
+	int pid, status;
 	if (num_commands == 1) {
 		command_t command;
 		memset(&command, 0, sizeof(command_t));
 		parse_single_command(p_vec, &command);
-		launch_process(&command);
+		launch_process(&command, PIPE_NONE, NULL);
+		while ((pid = wait(&status)) != -1);
 		free(command.argv);
 	} else {
 		vec_t command_vec;
 		vec_init(&command_vec, sizeof(command_t));
 		parse_multiple_commands(p_vec, &command_vec);
 		launch_process_chain(&command_vec);
+		while ((pid = wait(&status)) != -1);
 		vec_free(&command_vec, command_vec_clear_policy);
 	}
 }
@@ -215,18 +223,64 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 }
 
 void launch_process_chain(vec_t * p_vec) {
-	/* TODO: actually implement... this just prints stuff out... */
 	command_t * commands = (command_t *)p_vec->data;
-	for (size_t i = 0; i < p_vec->npos; i += 1) {
-		if (commands[i].argv) {
-		    char ** argv = commands[i].argv;
-			int j = 0;
-			while (argv[j] != NULL) {
-				printf("%s ", argv[j]);
-				j += 1;
+	const int num_commands = p_vec->npos;
+	int fd[2 * num_commands];
+	size_t idx;
+	for (idx = 0; idx < num_commands; idx += 1) {
+		pipe(&fd[2 * idx]);
+	}
+	/* launch the first process, it cannot have input piped in */
+	launch_process(&commands[0], PIPE_OUT, fd);
+	for (idx = 1; idx < num_commands - 1; idx += 1) {
+		launch_process(&commands[idx], PIPE_OUT | PIPE_IN, fd + idx * 2);
+	}
+	launch_process(&commands[idx], PIPE_IN, fd + idx * 2);
+	for (idx = 0; idx < num_commands * 2; idx += 1) {
+		close(fd[idx]);
+	}
+}
+
+void launch_process(command_t * p_command, const int options, int fd[]) {
+	enum pid_kind {
+		child = 0,
+		error = -1
+	};
+	pid_t pid = fork();
+	switch (pid) {
+	case child:
+	    if (p_command->dest) {
+			FILE * p_target = fopen(p_command->dest, "w");
+			fclose(stdout);
+			dup2(fileno(p_target), STDOUT_FILENO);
+			if (p_target) {
+				fclose(p_target);
 			}
-			printf("\n");
 		}
+		if (options & PIPE_OUT) {
+			dup2(fd[1], STDOUT_FILENO);
+			close(fd[0]);
+		}
+		if (p_command->src) {
+			FILE * p_source = fopen(p_command->src, "r");
+		    fclose(stdin);
+			dup2(fileno(p_source), STDIN_FILENO);
+			if (p_source) {
+				fclose(p_source);
+			}
+		}
+		if (options & PIPE_IN) {
+			/* negative index because the input comes from the previous command */
+			dup2(fd[-2], STDIN_FILENO);
+			close(fd[-1]);
+		}
+		execvp(p_command->argv[0], p_command->argv);
+		perror("exec");
+		break;
+		
+	case error:
+		perror("fork");
+		break;
 	}
 }
 
@@ -239,45 +293,6 @@ char ** slice_argv_from_vec(vec_t * p_vec,
 	memcpy(argv, p_vec->data + start_pos * cp_size, len - cp_size);
 	argv[len / cp_size - 1] = NULL;
 	return argv;
-}
-
-void launch_process(command_t * p_command) {
-	enum pid_kind {
-		child = 0,
-		error = -1
-	};
-	pid_t pid = fork();
-	int status;
-	switch (pid) {
-	case child:
-		if (p_command->dest) {
-			FILE * p_target = fopen(p_command->dest, "w");
-			fclose(stdout);
-			dup2(fileno(p_target), STDOUT_FILENO);
-			if (p_target) {
-				fclose(p_target);
-			}
-		}
-		if (p_command->src) {
-			FILE * p_source = fopen(p_command->src, "r");
-			fclose(stdin);
-			dup2(fileno(p_source), STDIN_FILENO);
-			if (p_source) {
-				fclose(p_source);
-			}
-		}
-		execvp(p_command->argv[0], p_command->argv);
-		perror("exec");
-		break;
-		
-	case error:
-		perror("fork");
-		break;
-		
-	default:
-		waitpid(pid, &status, WUNTRACED | WCONTINUED);
-		break;
-	}
 }
 
 int vec_init(vec_t * p_vec, const size_t elem_size) {

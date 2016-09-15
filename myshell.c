@@ -96,26 +96,18 @@ void shell_eval(vec_t * p_vec) {
 		char first_char = vec_contents[idx][0];
 		if (first_char == '&' || first_char == '|') num_commands += 1;
 	}
-    switch (num_commands) {
-	case 1:
-		{
-			command_t command;
-			memset(&command, 0, sizeof(command_t));
-			parse_single_command(p_vec, &command);
-			launch_process(&command);
-			free(command.argv);
-		}
-		break;
-
-	default:
-		{
-			vec_t command_vec;
-			vec_init(&command_vec, sizeof(command_t));
-			parse_multiple_commands(p_vec, &command_vec);
-			launch_process_chain(&command_vec);
-			vec_free(&command_vec, command_vec_clear_policy);
-		}
-		break;
+	if (num_commands == 1) {
+		command_t command;
+		memset(&command, 0, sizeof(command_t));
+		parse_single_command(p_vec, &command);
+		launch_process(&command);
+		free(command.argv);
+	} else {
+		vec_t command_vec;
+		vec_init(&command_vec, sizeof(command_t));
+		parse_multiple_commands(p_vec, &command_vec);
+		launch_process_chain(&command_vec);
+		vec_free(&command_vec, command_vec_clear_policy);
 	}
 }
 

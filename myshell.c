@@ -9,7 +9,7 @@
 typedef struct vec_t {
 	char * data;
 	size_t len;
-	size_t insert_pos;
+	size_t npos;
 	size_t elem_size;
 } vec_t;
 
@@ -29,18 +29,25 @@ enum constants {
 void lexer_set_argv(vec_t *);
 void lexer_parse_buffer(char *);
 
+typedef struct command_t {
+	char ** argv;
+	char * dest, * src;
+	bool is_bkg_proc;
+} command_t;
+
 /* CORE SHELL IMPLEMENTATION */
 char * shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
-void launch_process(char **, bool, char *, char *);
+void launch_process(command_t *);
+void launch_process_chain(vec_t *);
+void parse_single_command(vec_t *, command_t *);
+void parse_multiple_commands(vec_t * restrict, vec_t * restrict);
 char ** slice_argv_from_vec(vec_t *, const size_t, const size_t);
-void parse_single_command(vec_t *);
-void parse_multiple_commands(vec_t *);
 
 void arg_vec_clear_policy(void * vec) {
 	vec_t * p_vec = vec;
 	char ** argv = (char **)p_vec->data;
-	for (size_t i = 0; i < p_vec->insert_pos; i++) {
+	for (size_t i = 0; i < p_vec->npos; i++) {
 		if (argv[i]) free(argv[i]);
 		argv[i] = NULL;
 	}
@@ -71,16 +78,10 @@ char * shell_read(char * buffer, vec_t * p_vec) {
 	return rc;
 }
 
-typedef struct command_t {
-	char ** argv;
-	char * dest, * src;
-	bool is_bkg_proc;
-} command_t;
-
 void command_vec_clear_policy(void * vec) {
 	vec_t * p_vec = vec;
 	command_t * commands = (command_t *)p_vec->data;
-	for (size_t i = 0; i < p_vec->insert_pos; i++) {
+	for (size_t i = 0; i < p_vec->npos; i++) {
 		if (commands[i].argv) {
 			free(commands[i].argv);
 		}
@@ -91,73 +92,78 @@ void shell_eval(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
 	/* check if there are multiple commands in the input line */
 	int num_commands = 1;
-	for (size_t idx = 0; idx < p_vec->insert_pos; idx += 1) {
+	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
 		char first_char = vec_contents[idx][0];
 		if (first_char == '&' || first_char == '|') num_commands += 1;
 	}
     switch (num_commands) {
 	case 1:
-		parse_single_command(p_vec);
+		{
+			command_t command;
+			memset(&command, 0, sizeof(command_t));
+			parse_single_command(p_vec, &command);
+			launch_process(&command);
+			free(command.argv);
+		}
 		break;
 
 	default:
-	    parse_multiple_commands(p_vec);
+		{
+			vec_t command_vec;
+			vec_init(&command_vec, sizeof(command_t));
+			parse_multiple_commands(p_vec, &command_vec);
+			launch_process_chain(&command_vec);
+			vec_free(&command_vec, command_vec_clear_policy);
+		}
 		break;
 	}
 }
 
-void parse_single_command(vec_t * p_vec) {
+void parse_single_command(vec_t * p_vec, command_t * p_command) {
 	char ** vec_contents = (char **)p_vec->data;
-	char ** argv = NULL;
-	char * dest = NULL;
-	char * src = NULL;
-	if (p_vec->insert_pos == 0) return;
+	if (p_vec->npos == 0) return;
 	bool seen_command = false;
-	for (size_t idx = 0; idx < p_vec->insert_pos; idx += 1) {
+	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
 		switch (vec_contents[idx][0]) {
 		case '<':
-			if (!argv) {
-				argv = slice_argv_from_vec(p_vec, 0, idx - 1);
+			if (!p_command->argv) {
+				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
-			if (idx + 1 == p_vec->insert_pos) {
-				if (argv) free(argv);
+			if (idx + 1 == p_vec->npos) {
 				puts("Error: expected expression after <");
 				return;
 			}
-			src = vec_contents[idx + 1];
+			p_command->src = vec_contents[idx + 1];
 			idx += 1;
 			break;
 			
 		case '>':
-			if (!argv) {
-				argv = slice_argv_from_vec(p_vec, 0, idx - 1);
+			if (!p_command->argv) {
+				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
-			if (idx + 1 == p_vec->insert_pos) {
-				if (argv) free(argv);
+			if (idx + 1 == p_vec->npos) {
 				puts("Error: expected expression after >");
 				return;
 			}
-			dest = vec_contents[idx + 1];
+			p_command->dest = vec_contents[idx + 1];
 			idx += 1;
 			break;
 			
 		default:
-			if (idx + 1 == p_vec->insert_pos && !seen_command) {
-				argv = slice_argv_from_vec(p_vec, 0, idx);
+			if (idx + 1 == p_vec->npos && !seen_command) {
+				if (!p_command->argv) {
+					p_command->argv = slice_argv_from_vec(p_vec, 0, idx);
+				}
 				seen_command = true;
 			}
 			break;
 		}
 	}
-	launch_process(argv, true, dest, src);
-	free(argv);
 }
 
 /* this function is long, but not deeply nested and fairly straightforward... */
-void parse_multiple_commands(vec_t * p_vec) {
+void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_vec) {
 	char ** arg_vec_contents = (char **) p_vec->data;
-	vec_t command_vec;
-	vec_init(&command_vec, sizeof(command_t));
 	command_t current_command;
 	memset(&current_command, 0, sizeof(command_t));
 	char current_first_character = arg_vec_contents[0][0];
@@ -167,36 +173,42 @@ void parse_multiple_commands(vec_t * p_vec) {
 	while (current_first_character != '|' &&
 		   current_first_character != '<' &&
 		   current_first_character != '&') {
+		if (current_first_character == '>') {
+			puts("Error: misuse of output redirection");
+			return;
+		}
 		idx += 1;
 		current_first_character = arg_vec_contents[idx][0];
 	}
 	current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
-	if (current_first_character == '<' && idx + 3 < p_vec->insert_pos) {
+	if (current_first_character == '<' && idx + 3 < p_vec->npos) {
 	    current_command.src = arg_vec_contents[idx + 1];
 		/* skip the file name, as well as the anticipated pipe */
 		idx += 2;
 	}
 	idx += 1;
 	command_start_idx = idx;
-	vec_push(&command_vec, &current_command);
+	vec_push(p_command_vec, &current_command);
 	memset(&current_command, 0, sizeof(command_t));
 	bool seen_command = false;
-	for (; idx < p_vec->insert_pos; idx += 1) {
+	for (; idx < p_vec->npos; idx += 1) {
 		switch (arg_vec_contents[idx][0]) {
 		case '|':
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			command_start_idx = idx + 1;
-			vec_push(&command_vec, &current_command);
+			vec_push(p_command_vec, &current_command);
 			memset(&current_command, 0, sizeof(command_t));
 			seen_command = false;
 			break;
 
 		case '>':
 			printf("Output redirection unsupported...\n");
+			vec_free(p_command_vec, command_vec_clear_policy);
 			return;
 
 		case '&':
 			printf("Bkg commands unsupported...\n");
+			vec_free(p_command_vec, command_vec_clear_policy);
 			return;
 
 		default:
@@ -206,10 +218,14 @@ void parse_multiple_commands(vec_t * p_vec) {
 	}
 	if (seen_command) {
 		current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
-		vec_push(&command_vec, &current_command);
+		vec_push(p_command_vec, &current_command);
 	}
-	command_t * commands = (command_t *)command_vec.data;
-	for (size_t i = 0; i < command_vec.insert_pos; i += 1) {
+}
+
+void launch_process_chain(vec_t * p_vec) {
+	/* TODO: actually implement... this just prints stuff out... */
+	command_t * commands = (command_t *)p_vec->data;
+	for (size_t i = 0; i < p_vec->npos; i += 1) {
 		if (commands[i].argv) {
 		    char ** argv = commands[i].argv;
 			int j = 0;
@@ -220,7 +236,6 @@ void parse_multiple_commands(vec_t * p_vec) {
 			printf("\n");
 		}
 	}
-	vec_free(&command_vec, command_vec_clear_policy);
 }
 
 char ** slice_argv_from_vec(vec_t * p_vec,
@@ -234,7 +249,7 @@ char ** slice_argv_from_vec(vec_t * p_vec,
 	return argv;
 }
 
-void launch_process(char ** argv, bool wait, char * dest, char * src) {
+void launch_process(command_t * p_command) {
 	enum pid_kind {
 		child = 0,
 		error = -1
@@ -243,23 +258,23 @@ void launch_process(char ** argv, bool wait, char * dest, char * src) {
 	int status;
 	switch (pid) {
 	case child:
-		if (dest) {
-			FILE * p_target = fopen(dest, "w");
+		if (p_command->dest) {
+			FILE * p_target = fopen(p_command->dest, "w");
 			fclose(stdout);
 			dup2(fileno(p_target), STDOUT_FILENO);
 			if (p_target) {
 				fclose(p_target);
 			}
 		}
-		if (src) {
-			FILE * p_source = fopen(src, "r");
+		if (p_command->src) {
+			FILE * p_source = fopen(p_command->src, "r");
 			fclose(stdin);
 			dup2(fileno(p_source), STDIN_FILENO);
 			if (p_source) {
 				fclose(p_source);
 			}
 		}
-		execvp(argv[0], argv);
+		execvp(p_command->argv[0], p_command->argv);
 		perror("exec");
 		break;
 		
@@ -268,7 +283,7 @@ void launch_process(char ** argv, bool wait, char * dest, char * src) {
 		break;
 		
 	default:
-		if (wait) waitpid(pid, &status, WUNTRACED | WCONTINUED);
+		waitpid(pid, &status, WUNTRACED | WCONTINUED);
 		break;
 	}
 }
@@ -280,24 +295,24 @@ int vec_init(vec_t * p_vec, const size_t elem_size) {
 	}
 	memset(p_vec->data, 0, p_vec->len);
 	p_vec->len = elem_size;
-	p_vec->insert_pos = 0;
+	p_vec->npos = 0;
 	p_vec->elem_size = elem_size;
 	return 1;
 }
 
 int vec_push(vec_t * p_vec, const void * p_element) {
 	const size_t elem_size = p_vec->elem_size;
-	if (p_vec->len >= (p_vec->insert_pos + 1) * elem_size) {
-		memcpy(p_vec->data + p_vec->insert_pos * elem_size, p_element, elem_size);
-		++p_vec->insert_pos;
+	if (p_vec->len >= (p_vec->npos + 1) * elem_size) {
+		memcpy(p_vec->data + p_vec->npos * elem_size, p_element, elem_size);
+		++p_vec->npos;
 	} else {
 		char * new_data = malloc(p_vec->len * vec_growth_rate);
 		if (!new_data) return 0;
 		memcpy(new_data, p_vec->data, p_vec->len);
 		free(p_vec->data);
 		p_vec->data = new_data;
-		memcpy(p_vec->data + p_vec->insert_pos * elem_size, p_element, elem_size);
-		++p_vec->insert_pos;
+		memcpy(p_vec->data + p_vec->npos * elem_size, p_element, elem_size);
+		++p_vec->npos;
 		p_vec->len *= vec_growth_rate;
 	}
 	return 1;
@@ -305,7 +320,7 @@ int vec_push(vec_t * p_vec, const void * p_element) {
 
 void vec_clear(vec_t * p_vec, void (* policy)(void *)) {
     policy(p_vec);
-	p_vec->insert_pos = 0;
+	p_vec->npos = 0;
 }
 
 void vec_free(vec_t * p_vec, void (* policy)(void *)) {

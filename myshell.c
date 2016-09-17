@@ -79,7 +79,7 @@ void token_vec_clear_policy(void * vec) {
 
 int main(int argc, char ** argv) {
 	if (argc >= 2) {
-		if (strncmp("-n", argv[1], 2)) {
+		if (strcmp("-n", argv[1]) == 0) {
 			global_print_shell_context = false;
 		}
 	}

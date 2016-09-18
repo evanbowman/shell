@@ -57,8 +57,8 @@ char * shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
 void launch_process(command_t *, const int, int[], int);
 void launch_process_chain(vec_t *);
-void parse_single_command(vec_t *, command_t *);
-void parse_multiple_commands(vec_t * restrict, vec_t * restrict);
+int parse_single_command(vec_t *, command_t *);
+int parse_multiple_commands(vec_t * restrict, vec_t * restrict);
 char ** slice_argv_from_vec(vec_t *, const size_t, const size_t);
 void print_intro_msg();
 
@@ -97,7 +97,7 @@ int main(int argc, char ** argv) {
 		print_intro_msg();
 	}
 	while (true) {
-		memset(buffer, '\0', read_buffer_size);
+		memset(buffer, 0, read_buffer_size);
 		if (!shell_read(buffer, &token_vec)) break;
 		shell_eval(&token_vec);
 		vec_clear(&token_vec, token_vec_clear_policy);
@@ -138,19 +138,29 @@ void command_vec_clear_policy(void * vec) {
 	}
 }
 
+enum {
+	PARSE_SUCCESS,
+	PARSE_ERROR
+};
+
 void shell_eval(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
+	if (p_vec->npos == 0) return; /* special case, no parse error */
 	/* check if there are multiple commands in the input line */
 	int num_commands = 1;
 	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
-		char first_char = vec_contents[idx][0];
+		const char first_char = vec_contents[idx][0];
 		if (first_char == '&' || first_char == '|') num_commands += 1;
 	}
 	int pid, status;
 	if (num_commands == 1) {
 		command_t command;
 		memset(&command, 0, sizeof(command_t));
-		parse_single_command(p_vec, &command);
+		const int res = parse_single_command(p_vec, &command);
+		if (res == PARSE_ERROR) {
+			puts("ERROR: failed to parse input line");
+			return;
+		}
 		launch_process(&command, PIPE_NONE, NULL, 0);
 		while ((pid = wait(&status)) != -1);
 		free(command.argv);
@@ -160,17 +170,21 @@ void shell_eval(vec_t * p_vec) {
 			puts(VEC_INIT_FAILURE);
 			exit(EXIT_FAILURE);
 		}
-		parse_multiple_commands(p_vec, &command_vec);
+		const int res = parse_multiple_commands(p_vec, &command_vec);
+		if (res == PARSE_ERROR) {
+			puts("ERROR: failed to parse input line");
+			return;
+		}
 		launch_process_chain(&command_vec);
 		while ((pid = wait(&status)) != -1);
 		vec_free(&command_vec, command_vec_clear_policy);
 	}
 }
 
-void parse_single_command(vec_t * p_vec, command_t * p_command) {
+int parse_single_command(vec_t * p_vec, command_t * p_command) {
 	global_num_pipes = 0;
 	char ** vec_contents = (char **)p_vec->data;
-	if (p_vec->npos == 0) return;
+	if (p_vec->npos == 0) return PARSE_ERROR;
 	bool seen_command = false;
 	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
 		switch (vec_contents[idx][0]) {
@@ -179,8 +193,7 @@ void parse_single_command(vec_t * p_vec, command_t * p_command) {
 				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
 			if (idx + 1 == p_vec->npos) {
-				puts("Error: expected expression after <");
-				return;
+				return PARSE_ERROR;
 			}
 			p_command->src = vec_contents[idx + 1];
 			idx += 1;
@@ -191,8 +204,7 @@ void parse_single_command(vec_t * p_vec, command_t * p_command) {
 				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
 			if (idx + 1 == p_vec->npos) {
-				puts("Error: expected expression after >");
-				return;
+				return PARSE_ERROR;
 			}
 			p_command->dest = vec_contents[idx + 1];
 			idx += 1;
@@ -208,10 +220,10 @@ void parse_single_command(vec_t * p_vec, command_t * p_command) {
 			break;
 		}
 	}
+	return PARSE_SUCCESS;
 }
 
-/* this function is long, but not deeply nested and fairly straightforward... */
-void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_vec) {
+int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_vec) {
 	char ** token_vec_contents = (char **) p_vec->data;
 	command_t current_command;
 	memset(&current_command, 0, sizeof(command_t));
@@ -223,8 +235,7 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 		   current_first_character != '<' &&
 		   current_first_character != '&') {
 		if (current_first_character == '>') {
-			puts("Error: misuse of output redirection");
-			return;
+			return PARSE_ERROR;
 		}
 		idx += 1;
 		current_first_character = token_vec_contents[idx][0];
@@ -246,6 +257,9 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 	for (; idx < p_vec->npos; idx += 1) {
 		switch (token_vec_contents[idx][0]) {
 		case '|':
+			if (!seen_command) {
+				return PARSE_ERROR;
+			}
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			command_start_idx = idx + 1;
 			if (!vec_push(p_command_vec, &current_command)) {
@@ -255,21 +269,36 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 			memset(&current_command, 0, sizeof(command_t));
 			seen_command = false;
 			break;
-
+			
+		case '<':
+			return PARSE_ERROR;
+			
 		case '>':
-			/* TODO */
-			printf("Output redirection unsupported...\n");
-			vec_free(p_command_vec, command_vec_clear_policy);
-			return;
-
+			if (!seen_command) return PARSE_ERROR;
+			for (int inner_idx = idx; inner_idx < p_vec->npos - 1; inner_idx += 1) {
+				const char current_char = token_vec_contents[inner_idx][0];
+				if (current_char == '|' || current_char == '&') {
+					return PARSE_ERROR;
+				}
+			}
+			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
+			current_command.dest = token_vec_contents[idx + 1];
+			if (!vec_push(p_command_vec, &current_command)) {
+				puts(VEC_PUSH_FAILURE);
+				exit(EXIT_FAILURE);
+			}
+			memset(&current_command, 0, sizeof(command_t));
+			seen_command = false;
+		    break;
+			
 		case '&':
-			/* TODO */ 
-			printf("Bkg commands unsupported...\n");
-			vec_free(p_command_vec, command_vec_clear_policy);
-			return;
-
+			return PARSE_ERROR;
+			
 		default:
-			seen_command = true;
+			if (!seen_command) {
+				command_start_idx = idx;
+				seen_command = true;
+			}
 			break;
 		}
 	}
@@ -280,6 +309,7 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 			exit(EXIT_FAILURE);
 		}
 	}
+	return PARSE_SUCCESS;
 }
 
 void launch_process_chain(vec_t * p_vec) {

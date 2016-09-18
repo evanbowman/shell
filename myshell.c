@@ -30,8 +30,8 @@ typedef struct vec_t {
 /* VECTOR DATA STRUCTURE IMPLEMENTATION */
 int vec_init(vec_t *, const size_t);
 int vec_push(vec_t *, const void *);
-void vec_clear(vec_t *, void (*)(void *));
-void vec_free(vec_t * p_vec, void (*)(void *));
+void vec_clear(vec_t *, void (*)(vec_t *));
+void vec_free(vec_t * p_vec, void (*)(vec_t *));
 
 #define VEC_INIT_FAILURE "ERROR: failed to initialize vector"
 #define VEC_PUSH_FAILURE "ERROR: failed to push to vector"
@@ -71,8 +71,7 @@ enum pipe_state {
 int global_num_pipes;
 bool global_print_shell_context = true;
 
-void token_vec_clear_policy(void * vec) {
-	vec_t * p_vec = vec;
+void token_vec_clear_policy(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
 	for (size_t i = 0; i < p_vec->npos; i++) {
 		if (vec_contents[i]) free(vec_contents[i]);
@@ -127,8 +126,7 @@ char * shell_read(char * buffer, vec_t * p_vec) {
 	return rc;
 }
 
-void command_vec_clear_policy(void * vec) {
-	vec_t * p_vec = vec;
+void command_vec_clear_policy(vec_t * p_vec) {
 	command_t * commands = (command_t *)p_vec->data;
 	for (size_t i = 0; i < p_vec->npos; i++) {
 		if (commands[i].argv) {
@@ -256,9 +254,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 	for (; idx < p_vec->npos; idx += 1) {
 		switch (token_vec_contents[idx][0]) {
 		case '|':
-			if (!seen_command) {
-				return PARSE_ERROR;
-			}
+			if (!seen_command) return PARSE_ERROR;
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			command_start_idx = idx + 1;
 			if (!vec_push(p_command_vec, &current_command)) {
@@ -274,6 +270,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 			
 		case '>':
 			if (!seen_command) return PARSE_ERROR;
+			if (idx + 1 == p_vec->npos) return PARSE_ERROR;
 			for (int inner_idx = idx; inner_idx < p_vec->npos - 1; inner_idx += 1) {
 				const char current_char = token_vec_contents[inner_idx][0];
 				if (current_char == '|' || current_char == '&') {
@@ -288,6 +285,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 			}
 			memset(&current_command, 0, sizeof(command_t));
 			seen_command = false;
+			idx += 1;
 		    break;
 			
 		case '&':
@@ -417,12 +415,12 @@ int vec_push(vec_t * p_vec, const void * p_element) {
 	return 1;
 }
 
-void vec_clear(vec_t * p_vec, void (* policy)(void *)) {
+void vec_clear(vec_t * p_vec, void (* policy)(vec_t *)) {
     policy(p_vec);
 	p_vec->npos = 0;
 }
 
-void vec_free(vec_t * p_vec, void (* policy)(void *)) {
+void vec_free(vec_t * p_vec, void (* policy)(vec_t *)) {
 	policy(p_vec);
 	free(p_vec->data);
 }

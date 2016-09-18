@@ -191,9 +191,13 @@ int parse_single_command(vec_t * p_vec, command_t * p_command) {
 	char ** vec_contents = (char **)p_vec->data;
 	if (p_vec->npos == 0) return PARSE_ERROR;
 	bool seen_command = false;
+	char next;
 	for (int idx = 0; idx < p_vec->npos; idx += 1) {
 		switch (vec_contents[idx][0]) {
 		case '<':
+		    if (idx + 1 == p_vec->npos) return PARSE_ERROR;
+			next = vec_contents[idx + 1][0];
+			if (next == '>' || next == '<' || next == '|') return PARSE_ERROR;
 			if (!p_command->argv) {
 				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
@@ -205,6 +209,9 @@ int parse_single_command(vec_t * p_vec, command_t * p_command) {
 			break;
 			
 		case '>':
+		    if (idx + 1 == p_vec->npos) return PARSE_ERROR;
+			next = vec_contents[idx + 1][0];
+			if (next == '>' || next == '<' || next == '|') return PARSE_ERROR;
 			if (!p_command->argv) {
 				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
@@ -267,10 +274,14 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 	}
 	memset(&current_command, 0, sizeof(command_t));
 	bool seen_command = false;
+	char next;
 	for (; idx < p_vec->npos; idx += 1) {
 		switch (token_vec_contents[idx][0]) {
 		case '|':
 			if (!seen_command) return PARSE_ERROR;
+			if (idx + 1 == p_vec->npos) return PARSE_ERROR;
+			next = token_vec_contents[idx + 1][0];
+			if (next == '<' || next == '>' || next == '&') return PARSE_ERROR;
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			command_start_idx = idx + 1;
 			if (!vec_push(p_command_vec, &current_command)) {
@@ -293,6 +304,8 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 					return PARSE_ERROR;
 				}
 			}
+		    next = token_vec_contents[idx + 1][0];
+			if (next == '<' || next == '>' || next == '&') return PARSE_ERROR;
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			current_command.dest = token_vec_contents[idx + 1];
 			if (!vec_push(p_command_vec, &current_command)) {

@@ -33,6 +33,9 @@ int vec_push(vec_t *, const void *);
 void vec_clear(vec_t *, void (*)(void *));
 void vec_free(vec_t * p_vec, void (*)(void *));
 
+#define VEC_INIT_FAILURE "ERROR: failed to initialize vector"
+#define VEC_PUSH_FAILURE "ERROR: failed to push to vector"
+
 /* VARIOUS CONSTANTS USED IN PROGRAM */
 enum {
 	read_buffer_size = 512,
@@ -85,7 +88,10 @@ int main(int argc, char ** argv) {
 	}
 	char buffer[read_buffer_size];
 	vec_t token_vec;
-	vec_init(&token_vec, sizeof(char *));
+	if (!vec_init(&token_vec, sizeof(char *))) {
+		puts(VEC_INIT_FAILURE);
+		return EXIT_FAILURE;
+	}
 	lexer_set_target(&token_vec);
     if (global_print_shell_context) {
 		print_intro_msg();
@@ -150,7 +156,10 @@ void shell_eval(vec_t * p_vec) {
 		free(command.argv);
 	} else {
 		vec_t command_vec;
-		vec_init(&command_vec, sizeof(command_t));
+		if (!vec_init(&command_vec, sizeof(command_t))) {
+			puts(VEC_INIT_FAILURE);
+			exit(EXIT_FAILURE);
+		}
 		parse_multiple_commands(p_vec, &command_vec);
 		launch_process_chain(&command_vec);
 		while ((pid = wait(&status)) != -1);
@@ -228,7 +237,10 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 	}
 	idx += 1;
 	command_start_idx = idx;
-	vec_push(p_command_vec, &current_command);
+	if (!vec_push(p_command_vec, &current_command)) {
+		puts(VEC_PUSH_FAILURE);
+	    exit(EXIT_FAILURE);
+	}
 	memset(&current_command, 0, sizeof(command_t));
 	bool seen_command = false;
 	for (; idx < p_vec->npos; idx += 1) {
@@ -236,7 +248,10 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 		case '|':
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			command_start_idx = idx + 1;
-			vec_push(p_command_vec, &current_command);
+			if (!vec_push(p_command_vec, &current_command)) {
+				puts(VEC_PUSH_FAILURE);
+				exit(EXIT_FAILURE);
+			}
 			memset(&current_command, 0, sizeof(command_t));
 			seen_command = false;
 			break;
@@ -260,7 +275,10 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 	}
 	if (seen_command) {
 		current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
-		vec_push(p_command_vec, &current_command);
+		if (!vec_push(p_command_vec, &current_command)) {
+			puts(VEC_PUSH_FAILURE);
+			exit(EXIT_FAILURE);
+		}
 	}
 }
 
@@ -1137,7 +1155,10 @@ YY_RULE_SETUP
 #line 10 "lexer.l"
 {
                       char * tok = strdup(yytext);
-                      vec_push(p_global_lexer_target, &tok);
+                      if (!vec_push(p_global_lexer_target, &tok)) {
+						  puts(VEC_PUSH_FAILURE);
+						  exit(EXIT_FAILURE);
+					  }
                   }
 	YY_BREAK
 case 2:
@@ -1145,7 +1166,10 @@ YY_RULE_SETUP
 #line 14 "lexer.l"
 {
                       char * tok = strdup(yytext);
-                      vec_push(p_global_lexer_target, &tok);
+                      if (!vec_push(p_global_lexer_target, &tok)) {
+						  puts(VEC_PUSH_FAILURE);
+						  exit(EXIT_FAILURE);
+					  }
                   }
 	YY_BREAK
 case 3:

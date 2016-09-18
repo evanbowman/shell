@@ -123,6 +123,8 @@ int main(int argc, char ** argv) {
 		shell_eval(&token_vec);
 		vec_clear(&token_vec, token_vec_clear_policy);
 	}
+	int pid, status;
+	while ((pid = wait(&status)) != -1);
 	vec_free(&token_vec, token_vec_clear_policy);
 	puts("");
 	return 0;

@@ -96,12 +96,12 @@ void token_vec_clear_policy(vec_t * p_vec) {
 	}
 }
 
-void child_signal_handler(int sig) {
+void sigchld_handler(int sig) {
 	while (waitpid(-1, NULL, WNOHANG) > 0);
 }
 
 int main(int argc, char ** argv) {
-	signal(SIGCHLD, child_signal_handler);
+	signal(SIGCHLD, sigchld_handler);
 	if (argc >= 2) {
 		if (strcmp("-n", argv[1]) == 0) {
 			global_print_shell_context = false;

@@ -242,11 +242,13 @@ void parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_
 			break;
 
 		case '>':
+			/* TODO */
 			printf("Output redirection unsupported...\n");
 			vec_free(p_command_vec, command_vec_clear_policy);
 			return;
 
 		case '&':
+			/* TODO */ 
 			printf("Bkg commands unsupported...\n");
 			vec_free(p_command_vec, command_vec_clear_policy);
 			return;
@@ -378,7 +380,7 @@ void vec_free(vec_t * p_vec, void (* policy)(void *)) {
 	free(p_vec->data);
 }
 
-/* FOR REFERENCE: LEXER SOURCE CODE */
+/* FOR REFERENCE: FLEX SOURCE CODE */
 /* %{ */
 /* vec_t * p_global_lexer_target; */
 /* %} */

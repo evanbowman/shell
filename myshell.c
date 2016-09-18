@@ -114,7 +114,6 @@ void print_intro_msg() {
 		return;
 	}
 	printf("Hello, %s\n", usr_name);
-	free(usr_name);
 }
 
 char * shell_read(char * buffer, vec_t * p_vec) {
@@ -393,8 +392,8 @@ int vec_init(vec_t * p_vec, const size_t elem_size) {
 	if (!p_vec->data) {
 		return 0;
 	}
-	memset(p_vec->data, 0, p_vec->len);
 	p_vec->len = elem_size;
+	memset(p_vec->data, 0, p_vec->len);
 	p_vec->npos = 0;
 	p_vec->elem_size = elem_size;
 	return 1;

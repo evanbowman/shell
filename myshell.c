@@ -386,12 +386,11 @@ char ** slice_argv_from_vec(vec_t * p_vec,
 }
 
 int vec_init(vec_t * p_vec, const size_t elem_size) {
-	p_vec->data = malloc(elem_size);
+	p_vec->data = calloc(1, elem_size);
 	if (!p_vec->data) {
 		return 0;
 	}
 	p_vec->len = elem_size;
-	memset(p_vec->data, 0, p_vec->len);
 	p_vec->npos = 0;
 	p_vec->elem_size = elem_size;
 	return 1;
@@ -409,7 +408,7 @@ int vec_push(vec_t * p_vec, const void * p_element) {
 		free(p_vec->data);
 		p_vec->data = new_data;
 		memcpy(p_vec->data + p_vec->npos * elem_size, p_element, elem_size);
-		++p_vec->npos;
+		p_vec->npos += 1;
 		p_vec->len *= vec_growth_rate;
 	}
 	return 1;

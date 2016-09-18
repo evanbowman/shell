@@ -1,5 +1,5 @@
 %{
-vec_t * p_global_argv;
+vec_t * p_global_lexer_target;
 %}
 
 %option noyywrap
@@ -9,18 +9,19 @@ vec_t * p_global_argv;
 %%
 "<"|">"|"|"|"&"   {
                       char * tok = strdup(yytext);
-                      vec_push(p_global_argv, &tok);
+                      vec_push(p_global_lexer_target, &tok);
                   }
 [a-zA-Z0-9_/.-]+  {
                       char * tok = strdup(yytext);
-                      vec_push(p_global_argv, &tok);
+                      vec_push(p_global_lexer_target, &tok);
                   }
+[ \n\t]+ /* Ignore whitespace... */
 %%
 
 YY_BUFFER_STATE global_buffer_state;
 
-void lexer_set_argv(vec_t * p_argv) {
-    p_global_argv = p_argv;
+void lexer_set_target(vec_t * p_target) {
+    p_global_lexer_target = p_target;
 }
 
 void lexer_parse_buffer(char * buffer) {

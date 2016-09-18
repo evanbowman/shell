@@ -96,7 +96,12 @@ void token_vec_clear_policy(vec_t * p_vec) {
 	}
 }
 
+void child_signal_handler(int sig) {
+	while (waitpid(-1, NULL, WNOHANG) > 0);
+}
+
 int main(int argc, char ** argv) {
+	signal(SIGCHLD, child_signal_handler);
 	if (argc >= 2) {
 		if (strcmp("-n", argv[1]) == 0) {
 			global_print_shell_context = false;
@@ -118,8 +123,6 @@ int main(int argc, char ** argv) {
 		shell_eval(&token_vec);
 		vec_clear(&token_vec, token_vec_clear_policy);
 	}
-	int pid, status;
-	while ((pid = wait(&status)) != -1);
 	vec_free(&token_vec, token_vec_clear_policy);
 	puts("");
 	return 0;

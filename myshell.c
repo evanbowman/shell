@@ -55,7 +55,7 @@ typedef struct command_t {
 /* CORE SHELL IMPLEMENTATION */
 char * shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
-void launch_process(command_t *, const int, int[], int);
+int launch_process(command_t *, const int, int[], int);
 void launch_process_chain(vec_t *);
 int parse_single_command(vec_t *, command_t *);
 int parse_multiple_commands(vec_t * restrict, vec_t * restrict);
@@ -70,6 +70,7 @@ enum pipe_state {
 
 int global_num_pipes;
 bool global_print_shell_context = true;
+bool global_bkg_proc = false;
 
 void token_vec_clear_policy(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
@@ -101,6 +102,8 @@ int main(int argc, char ** argv) {
 		shell_eval(&token_vec);
 		vec_clear(&token_vec, token_vec_clear_policy);
 	}
+	int pid, status;
+	while ((pid = wait(&status)) != -1);
 	vec_free(&token_vec, token_vec_clear_policy);
 	puts("");
 	return 0;
@@ -147,9 +150,8 @@ void shell_eval(vec_t * p_vec) {
 	int num_commands = 1;
 	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
 		const char first_char = vec_contents[idx][0];
-		if (first_char == '&' || first_char == '|') num_commands += 1;
+		if (first_char == '|') num_commands += 1;
 	}
-	int pid, status;
 	if (num_commands == 1) {
 		command_t command;
 		memset(&command, 0, sizeof(command_t));
@@ -158,8 +160,15 @@ void shell_eval(vec_t * p_vec) {
 			puts("ERROR: failed to parse input line");
 			return;
 		}
-		launch_process(&command, PIPE_NONE, NULL, 0);
-		while ((pid = wait(&status)) != -1);
+		int pid, status;
+		pid = launch_process(&command, PIPE_NONE, NULL, 0);
+		if (!global_bkg_proc) {
+			if (pid) {
+				waitpid(pid, &status, WUNTRACED | WCONTINUED);
+			}
+		} else {
+			global_bkg_proc = false;
+		}
 		free(command.argv);
 	} else {
 		vec_t command_vec;
@@ -173,7 +182,6 @@ void shell_eval(vec_t * p_vec) {
 			return;
 		}
 		launch_process_chain(&command_vec);
-		while ((pid = wait(&status)) != -1);
 		vec_free(&command_vec, command_vec_clear_policy);
 	}
 }
@@ -183,7 +191,7 @@ int parse_single_command(vec_t * p_vec, command_t * p_command) {
 	char ** vec_contents = (char **)p_vec->data;
 	if (p_vec->npos == 0) return PARSE_ERROR;
 	bool seen_command = false;
-	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
+	for (int idx = 0; idx < p_vec->npos; idx += 1) {
 		switch (vec_contents[idx][0]) {
 		case '<':
 			if (!p_command->argv) {
@@ -205,6 +213,14 @@ int parse_single_command(vec_t * p_vec, command_t * p_command) {
 			}
 			p_command->dest = vec_contents[idx + 1];
 			idx += 1;
+			break;
+			
+		case '&':
+			if (idx + 1 != p_vec->npos) return PARSE_ERROR;
+		    if (!p_command->argv) {
+				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
+			}
+			global_bkg_proc = true;
 			break;
 			
 		default:
@@ -273,7 +289,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 			if (idx + 1 == p_vec->npos) return PARSE_ERROR;
 			for (int inner_idx = idx; inner_idx < p_vec->npos - 1; inner_idx += 1) {
 				const char current_char = token_vec_contents[inner_idx][0];
-				if (current_char == '|' || current_char == '&') {
+				if (current_char == '|') {
 					return PARSE_ERROR;
 				}
 			}
@@ -289,7 +305,17 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 		    break;
 			
 		case '&':
-			return PARSE_ERROR;
+			if (idx + 1 != p_vec->npos) return PARSE_ERROR;
+			if (seen_command) {
+				current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
+				if (!vec_push(p_command_vec, &current_command)) {
+					puts(VEC_PUSH_FAILURE);
+					exit(EXIT_FAILURE);
+				}
+				seen_command = false;
+			}
+			global_bkg_proc = true;
+		    break;
 			
 		default:
 			if (!seen_command) {
@@ -314,22 +340,35 @@ void launch_process_chain(vec_t * p_vec) {
 	const int num_commands = p_vec->npos;
 	global_num_pipes = num_commands;
 	int fd[2 * num_commands];
-	size_t idx;
+	int idx;
 	for (idx = 0; idx < num_commands; idx += 1) {
 		pipe(&fd[2 * idx]);
 	}
+	int pids[num_commands];
+	int status;
+	memset(pids, 0, num_commands * sizeof(int));
 	/* launch the first process, it cannot have input piped in */
-	launch_process(&commands[0], PIPE_OUT, fd, 0);
+	pids[0] = launch_process(&commands[0], PIPE_OUT, fd, 0);
 	for (idx = 1; idx < num_commands - 1; idx += 1) {
-		launch_process(&commands[idx], PIPE_OUT | PIPE_IN, fd, idx);
+		pids[idx] = launch_process(&commands[idx], PIPE_OUT | PIPE_IN, fd, idx);
 	}
-	launch_process(&commands[idx], PIPE_IN, fd, idx);
+	pids[idx] = launch_process(&commands[idx], PIPE_IN, fd, idx);
 	for (idx = 0; idx < num_commands * 2; idx += 1) {
 		close(fd[idx]);
 	}
+    if (!global_bkg_proc) {
+		/* if not a bkg proc chain, wait for all of the commands to finish */
+		for (idx = 0; idx < num_commands; idx += 1) {
+			if (pids[idx]) {
+				waitpid(pids[idx], &status, WUNTRACED | WCONTINUED);
+			}
+		}
+	} else {
+		global_bkg_proc = false;
+	}
 }
 
-void launch_process(command_t * p_command, const int options, int fd[], int idx) {
+int launch_process(command_t * p_command, const int options, int fd[], int idx) {
 	enum pid_kind {
 		child = 0,
 		error = -1
@@ -366,12 +405,13 @@ void launch_process(command_t * p_command, const int options, int fd[], int idx)
 		}
 		execvp(p_command->argv[0], p_command->argv);
 		perror("exec");
-		break;
+		return 0;
 		
 	case error:
 		perror("fork");
-		break;
+		return 0;
 	}
+	return pid;
 }
 
 char ** slice_argv_from_vec(vec_t * p_vec,

@@ -34,3 +34,5 @@ ISSUES
   descriptors  inherited from the  parent process.  Otherwise the
   first pipe would work, but  then any additional pipes after the
   second command would hang indefinitely.
+
+(1) https://en.wikipedia.org/wiki/Flex_(lexical_analyser_generator)

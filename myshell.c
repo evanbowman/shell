@@ -78,12 +78,6 @@ int parse_multiple_commands(vec_t * restrict, vec_t * restrict);
 char ** slice_argv_from_vec(vec_t *, const size_t, const size_t);
 void print_intro_msg();
 
-enum pipe_state {
-	PIPE_NONE = 0x0000,
-	PIPE_OUT = 0x0001,
-	PIPE_IN = 0x0002
-};
-
 int global_num_pipes;
 bool global_print_shell_context = true;
 bool global_bkg_proc = false;
@@ -160,6 +154,12 @@ void command_vec_clear_policy(vec_t * p_vec) {
 enum {
 	PARSE_SUCCESS,
 	PARSE_ERROR
+};
+
+enum {
+	PIPE_NONE,
+	PIPE_OUT,
+	PIPE_IN
 };
 
 void shell_eval(vec_t * p_vec) {

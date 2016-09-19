@@ -1,6 +1,6 @@
 /* ========================================================================== */
 /*  Copyright 2016 Evan Bowman                                                */
-/*                                                                            */                         
+/*                                                                            */
 /*  Licensed under the Apache License, Version 2.0 (the "License");           */
 /*  you may not use this file except in compliance with the License.          */
 /*  You may obtain a copy of the License at                                   */
@@ -436,11 +436,11 @@ int launch_process(command_t * p_command, const int options, int fd[], int idx) 
 			close(fd[i]);
 		}
 		execvp(p_command->argv[0], p_command->argv);
-		perror("exec");
+		perror("ERROR: exec");
 		return 0;
 		
 	case error:
-		perror("fork");
+		perror("ERROR: fork");
 		return 0;
 	}
 	return pid;
@@ -922,7 +922,7 @@ static yyconst flex_int32_t yy_ec[256] =
 
         4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
         4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
-        4,    4,    1,    7,    1,    1,    1,    1,    1,    1,
+        4,    4,    1,    7,    1,    4,    1,    1,    1,    1,
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
@@ -2251,3 +2251,4 @@ void lexer_parse_buffer(char * buffer) {
     yylex();
     yy_delete_buffer(YY_CURRENT_BUFFER);
 }
+

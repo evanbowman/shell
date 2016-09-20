@@ -69,7 +69,7 @@ typedef struct command_t {
 } command_t;
 
 /* CORE SHELL IMPLEMENTATION */
-char * shell_read(char *, vec_t *);
+void shell_read(char *, vec_t *);
 void shell_eval(vec_t *);
 int launch_process(command_t *, const int, int[], int);
 void launch_process_chain(vec_t *);
@@ -108,18 +108,14 @@ int main(int argc, char ** argv) {
 		return EXIT_FAILURE;
 	}
 	lexer_set_target(&token_vec);
-    if (global_print_shell_context) {
-		print_intro_msg();
-	}
+    if (global_print_shell_context) print_intro_msg();
 	while (true) {
 		memset(buffer, 0, read_buffer_size);
-		if (!shell_read(buffer, &token_vec)) break;
+		if (global_print_shell_context) printf("shell$ ");
+		shell_read(buffer, &token_vec);
 	    shell_eval(&token_vec);
 		vec_clear(&token_vec, token_vec_clear_policy);
 	}
-	vec_free(&token_vec, token_vec_clear_policy);
-	puts("");
-	return 0;
 }
 
 void print_intro_msg() {
@@ -131,15 +127,14 @@ void print_intro_msg() {
 	printf("Hello, %s\n", usr_name);
 }
 
-char * shell_read(char * buffer, vec_t * p_vec) {
-	char * rc = NULL;
-	if (global_print_shell_context) {
-		printf("shell$ ");
+void shell_read(char * buffer, vec_t * p_vec) {
+	if (fgets(buffer, read_buffer_size, stdin) != NULL) {
+		lexer_parse_buffer(buffer);
+		return;
 	}
-	/* if fgets finds an EOF, quit the shell */
-	rc = fgets(buffer, read_buffer_size, stdin);
-    lexer_parse_buffer(buffer);
-	return rc;
+	vec_free(p_vec, token_vec_clear_policy);
+	puts("logout");
+	exit(EXIT_SUCCESS);
 }
 
 void command_vec_clear_policy(vec_t * p_vec) {
@@ -151,12 +146,13 @@ void command_vec_clear_policy(vec_t * p_vec) {
 	}
 }
 
-enum {
+enum _parse {
 	PARSE_SUCCESS,
-	PARSE_ERROR
+	PARSE_ERROR,
+	PARSE_EXIT
 };
 
-enum {
+enum _pipe {
 	PIPE_NONE,
 	PIPE_OUT,
 	PIPE_IN
@@ -168,9 +164,7 @@ int parse_builtin_cmds(vec_t * p_vec) {
 		if (strcmp(vec_contents[i], "exit") == 0) {
 			switch (i) {
 			case 0:
-			    puts("");
-				vec_free(p_vec, token_vec_clear_policy);
-				exit(EXIT_SUCCESS);
+			    return PARSE_EXIT;
 				
 			default:
 				return PARSE_ERROR;
@@ -185,9 +179,16 @@ static const char * PARSE_ERROR_MSG = "ERROR: failed to parse input line";
 void shell_eval(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
 	if (p_vec->npos == 0) return; /* special case, no parse error */
-	if (parse_builtin_cmds(p_vec) == PARSE_ERROR) {
+	int prs_bltn_stat = parse_builtin_cmds(p_vec);
+	switch (prs_bltn_stat) {
+	case PARSE_ERROR:
 		puts(PARSE_ERROR_MSG);
 		return;
+		
+	case PARSE_EXIT:
+		puts("logout");
+		vec_free(p_vec, token_vec_clear_policy);
+		exit(EXIT_SUCCESS);
 	}
 	/* check if there are multiple commands in the input line */
 	int num_commands = 1;
@@ -457,7 +458,7 @@ int launch_process(command_t * p_command, const int options, int fd[], int idx) 
 		}
 		execvp(p_command->argv[0], p_command->argv);
 		printf("ERROR: failed to exec %s\n", p_command->argv[0]);
-		return error;
+		exit(EXIT_FAILURE);
 		
 	case error:
 		printf("ERROR: fork failed\n");
@@ -935,8 +936,8 @@ static yyconst flex_int32_t yy_ec[256] =
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
         1,    2,    1,    1,    1,    1,    1,    3,    1,    1,
         1,    1,    1,    1,    4,    4,    4,    4,    4,    4,
-        4,    4,    4,    4,    4,    4,    4,    1,    1,    5,
-        1,    6,    1,    1,    4,    4,    4,    4,    4,    4,
+        4,    4,    4,    4,    4,    4,    4,    4,    1,    5,
+        1,    6,    1,    4,    4,    4,    4,    4,    4,    4,
         4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
         4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
         1,    1,    1,    1,    4,    1,    4,    4,    4,    4,
@@ -1274,17 +1275,17 @@ case 1:
 YY_RULE_SETUP
 #line 10 "lexer.l"
 {
-                      char * tok = strdup(yytext);
-                      vec_push(p_global_lexer_target, &tok);
-                  }
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                      }
 	YY_BREAK
 case 2:
 YY_RULE_SETUP
 #line 14 "lexer.l"
 {
-                      char * tok = strdup(yytext);
-                      vec_push(p_global_lexer_target, &tok);
-                  }
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                      }
 	YY_BREAK
 case 3:
 /* rule 3 can match eol */

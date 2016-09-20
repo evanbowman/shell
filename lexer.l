@@ -7,14 +7,14 @@ vec_t * p_global_lexer_target;
 %option noinput
 
 %%
-"<"|">"|"|"|"&"   {
-                      char * tok = strdup(yytext);
-                      vec_push(p_global_lexer_target, &tok);
-                  }
-[a-zA-Z0-9~_/.-]+ {
-                      char * tok = strdup(yytext);
-                      vec_push(p_global_lexer_target, &tok);
-                  }
+"<"|">"|"|"|"&"       {
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                      }
+[a-zA-Z0-9~@:_/.-]+   {
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                      }
 [ \n\t]+ /* Ignore whitespace... */
 %%
 

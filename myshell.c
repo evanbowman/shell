@@ -49,8 +49,8 @@ int vec_push(vec_t *, const void *);
 void vec_clear(vec_t *, void (*)(vec_t *));
 void vec_free(vec_t * p_vec, void (*)(vec_t *));
 
-#define VEC_INIT_FAILURE "ERROR: failed to initialize vector"
-#define VEC_PUSH_FAILURE "ERROR: failed to push to vector"
+static const char * VEC_INIT_ERROR_MSG = "ERROR: failed to initialize vector";
+static const char * VEC_PUSH_ERROR_MSG = "ERROR: failed to push to vector";
 
 /* VARIOUS CONSTANTS USED IN PROGRAM */
 enum {
@@ -104,7 +104,7 @@ int main(int argc, char ** argv) {
 	char buffer[read_buffer_size];
 	vec_t token_vec;
 	if (!vec_init(&token_vec, sizeof(char *))) {
-		puts(VEC_INIT_FAILURE);
+		puts(VEC_INIT_ERROR_MSG);
 		return EXIT_FAILURE;
 	}
 	lexer_set_target(&token_vec);
@@ -114,7 +114,7 @@ int main(int argc, char ** argv) {
 	while (true) {
 		memset(buffer, 0, read_buffer_size);
 		if (!shell_read(buffer, &token_vec)) break;
-		shell_eval(&token_vec);
+	    shell_eval(&token_vec);
 		vec_clear(&token_vec, token_vec_clear_policy);
 	}
 	vec_free(&token_vec, token_vec_clear_policy);
@@ -162,9 +162,33 @@ enum {
 	PIPE_IN
 };
 
+int parse_builtin_cmds(vec_t * p_vec) {
+    char ** vec_contents = (char **)p_vec->data;
+	for (int i = 0; i < p_vec->npos; i++) {
+		if (strcmp(vec_contents[i], "exit") == 0) {
+			switch (i) {
+			case 0:
+			    puts("");
+				vec_free(p_vec, token_vec_clear_policy);
+				exit(EXIT_SUCCESS);
+				
+			default:
+				return PARSE_ERROR;
+			}
+		}
+	}
+	return PARSE_SUCCESS;
+}
+
+static const char * PARSE_ERROR_MSG = "ERROR: failed to parse input line";
+
 void shell_eval(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
 	if (p_vec->npos == 0) return; /* special case, no parse error */
+	if (parse_builtin_cmds(p_vec) == PARSE_ERROR) {
+		puts(PARSE_ERROR_MSG);
+		return;
+	}
 	/* check if there are multiple commands in the input line */
 	int num_commands = 1;
 	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
@@ -176,7 +200,7 @@ void shell_eval(vec_t * p_vec) {
 		memset(&command, 0, sizeof(command_t));
 		const int res = parse_single_command(p_vec, &command);
 		if (res == PARSE_ERROR) {
-			puts("ERROR: failed to parse input line");
+			puts(PARSE_ERROR_MSG);
 			return;
 		}
 		int pid, status;
@@ -192,12 +216,12 @@ void shell_eval(vec_t * p_vec) {
 	} else {
 		vec_t command_vec;
 		if (!vec_init(&command_vec, sizeof(command_t))) {
-			puts(VEC_INIT_FAILURE);
+			puts(VEC_INIT_ERROR_MSG);
 			exit(EXIT_FAILURE);
 		}
 		const int res = parse_multiple_commands(p_vec, &command_vec);
 		if (res == PARSE_ERROR) {
-			puts("ERROR: failed to parse input line");
+			puts(PARSE_ERROR_MSG);
 			return;
 		}
 		launch_process_chain(&command_vec);
@@ -220,9 +244,7 @@ int parse_single_command(vec_t * p_vec, command_t * p_command) {
 			if (!p_command->argv) {
 				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
-			if (idx + 1 == p_vec->npos) {
-				return PARSE_ERROR;
-			}
+			if (idx + 1 == p_vec->npos) return PARSE_ERROR;
 			p_command->src = vec_contents[idx + 1];
 			idx += 1;
 			break;
@@ -234,9 +256,7 @@ int parse_single_command(vec_t * p_vec, command_t * p_command) {
 			if (!p_command->argv) {
 				p_command->argv = slice_argv_from_vec(p_vec, 0, idx - 1);
 			}
-			if (idx + 1 == p_vec->npos) {
-				return PARSE_ERROR;
-			}
+			if (idx + 1 == p_vec->npos) return PARSE_ERROR;
 			p_command->dest = vec_contents[idx + 1];
 			idx += 1;
 			break;
@@ -263,7 +283,7 @@ int parse_single_command(vec_t * p_vec, command_t * p_command) {
 }
 
 int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_vec) {
-	char ** token_vec_contents = (char **) p_vec->data;
+	char ** token_vec_contents = (char **)p_vec->data;
 	command_t current_command;
 	memset(&current_command, 0, sizeof(command_t));
 	char current_first_character = token_vec_contents[0][0];
@@ -288,7 +308,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 	idx += 1;
 	command_start_idx = idx;
 	if (!vec_push(p_command_vec, &current_command)) {
-		puts(VEC_PUSH_FAILURE);
+		puts(VEC_PUSH_ERROR_MSG);
 	    exit(EXIT_FAILURE);
 	}
 	memset(&current_command, 0, sizeof(command_t));
@@ -304,7 +324,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			command_start_idx = idx + 1;
 			if (!vec_push(p_command_vec, &current_command)) {
-				puts(VEC_PUSH_FAILURE);
+				puts(VEC_PUSH_ERROR_MSG);
 				exit(EXIT_FAILURE);
 			}
 			memset(&current_command, 0, sizeof(command_t));
@@ -328,7 +348,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 			current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 			current_command.dest = token_vec_contents[idx + 1];
 			if (!vec_push(p_command_vec, &current_command)) {
-				puts(VEC_PUSH_FAILURE);
+				puts(VEC_PUSH_ERROR_MSG);
 				exit(EXIT_FAILURE);
 			}
 			memset(&current_command, 0, sizeof(command_t));
@@ -341,7 +361,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 			if (seen_command) {
 				current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 				if (!vec_push(p_command_vec, &current_command)) {
-					puts(VEC_PUSH_FAILURE);
+					puts(VEC_PUSH_ERROR_MSG);
 					exit(EXIT_FAILURE);
 				}
 				seen_command = false;
@@ -360,7 +380,7 @@ int parse_multiple_commands(vec_t * restrict p_vec, vec_t * restrict p_command_v
 	if (seen_command) {
 		current_command.argv = slice_argv_from_vec(p_vec, command_start_idx, idx - 1);
 		if (!vec_push(p_command_vec, &current_command)) {
-			puts(VEC_PUSH_FAILURE);
+			puts(VEC_PUSH_ERROR_MSG);
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -436,12 +456,12 @@ int launch_process(command_t * p_command, const int options, int fd[], int idx) 
 			close(fd[i]);
 		}
 		execvp(p_command->argv[0], p_command->argv);
-		perror("ERROR: exec");
-		return 0;
+		printf("ERROR: failed to exec %s\n", p_command->argv[0]);
+		return error;
 		
 	case error:
-		perror("ERROR: fork");
-		return 0;
+		printf("ERROR: fork failed\n");
+		return error;
 	}
 	return pid;
 }
@@ -493,6 +513,7 @@ void vec_clear(vec_t * p_vec, void (* policy)(vec_t *)) {
 
 void vec_free(vec_t * p_vec, void (* policy)(vec_t *)) {
 	policy(p_vec);
+	p_vec->npos = 0;
 	free(p_vec->data);
 }
 

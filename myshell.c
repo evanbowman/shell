@@ -54,8 +54,9 @@ static const char * VEC_PUSH_ERROR_MSG = "ERROR: failed to push to vector";
 
 /* VARIOUS CONSTANTS USED IN PROGRAM */
 enum {
-	read_buffer_size = 512,
-	vec_growth_rate = 2
+	READ_BUFFER_SIZE = 512,
+	VEC_GROWTH_RATE = 2,
+	NUM_BUILTINS = 2
 };
 
 /* INTERFACE WITH FLEX SCANNER */
@@ -82,6 +83,8 @@ int global_num_pipes;
 int global_num_commands = 1;
 bool global_print_shell_context = true;
 bool global_bkg_proc = false;
+int global_builtin_idxs[NUM_BUILTINS] = {-1, -1};
+int global_num_builtins = 0;
 
 void token_vec_clear_policy(vec_t * p_vec) {
 	char ** vec_contents = (char **)p_vec->data;
@@ -102,7 +105,7 @@ int main(int argc, char ** argv) {
 			global_print_shell_context = false;
 		}
 	}
-	char buffer[read_buffer_size];
+	char buffer[READ_BUFFER_SIZE];
 	vec_t token_vec;
 	if (!vec_init(&token_vec, sizeof(char *))) {
 		puts(VEC_INIT_ERROR_MSG);
@@ -111,7 +114,6 @@ int main(int argc, char ** argv) {
 	lexer_set_target(&token_vec);
     if (global_print_shell_context) print_intro_msg();
 	while (true) {
-		memset(buffer, 0, read_buffer_size);
 		if (global_print_shell_context) printf("shell$ ");
 		shell_read(buffer, &token_vec);
 	    shell_eval(&token_vec);
@@ -130,7 +132,10 @@ void print_intro_msg() {
 
 void shell_read(char * buffer, vec_t * p_vec) {
 	global_num_commands = 1;
-	if (fgets(buffer, read_buffer_size, stdin) != NULL) {
+	global_num_builtins = 0;
+	memset(global_builtin_idxs, -1, 2 * sizeof(int));
+	memset(buffer, 0, READ_BUFFER_SIZE);
+	if (fgets(buffer, READ_BUFFER_SIZE, stdin) != NULL) {
 		lexer_parse_buffer(buffer);
 		return;
 	}
@@ -151,7 +156,6 @@ void command_vec_clear_policy(vec_t * p_vec) {
 enum _parse {
 	PARSE_SUCCESS,
 	PARSE_ERROR,
-	PARSE_EXIT
 };
 
 enum _pipe {
@@ -160,36 +164,56 @@ enum _pipe {
 	PIPE_IN
 };
 
+enum _builtin {
+	CMD_EXIT,
+	CMD_CD
+};
+
 int parse_builtin_cmds(vec_t * p_vec) {
-    char ** vec_contents = (char **)p_vec->data;
-	for (int i = 0; i < p_vec->npos; i++) {
-		if (strcmp(vec_contents[i], "exit") == 0) {
-			switch (i) {
-			case 0:
-			    return PARSE_EXIT;
-				
-			default:
-				return PARSE_ERROR;
-			}
+	/* more than two commands without a pipe should alse be an error */
+	if (global_num_builtins > 1) return PARSE_ERROR;
+	if (global_num_builtins == 1) {
+		if (global_num_commands > 1) {
+			return PARSE_ERROR;
+		}
+	}
+	for (int i = 0; i < NUM_BUILTINS; i += 1) {
+	    if (global_builtin_idxs[i] > 1) {
+			return PARSE_ERROR;
 		}
 	}
 	return PARSE_SUCCESS;
 }
 
-static const char * PARSE_ERROR_MSG = "ERROR: failed to parse input line";
+void eval_builtin_cmds(vec_t * p_vec) {
+	for (int i = 0; i < NUM_BUILTINS; i += 1) {
+	    if (global_builtin_idxs[i] != -1) {
+			switch (i) {
+			case CMD_EXIT:
+				vec_free(p_vec, token_vec_clear_policy);
+				puts("logout");
+				exit(EXIT_SUCCESS);
+
+			case CMD_CD:
+				puts("ERROR: cd unsupported");
+				break;
+			}
+		}
+	}
+}
+
+static const char * PARSE_ERROR_MSG = "ERROR: invalid input";
 
 void shell_eval(vec_t * p_vec) {
-	if (p_vec->npos == 0) return; /* special case, no parse error */
-	int prs_bltn_stat = parse_builtin_cmds(p_vec);
-	switch (prs_bltn_stat) {
-	case PARSE_ERROR:
+	/* special case, no parse error */
+	if (p_vec->npos == 0) return;
+	int prs_res = parse_builtin_cmds(p_vec);
+	if (prs_res != PARSE_ERROR && global_num_builtins != 0) {
+		eval_builtin_cmds(p_vec);
+		return;
+	} else if (prs_res == PARSE_ERROR) {
 		puts(PARSE_ERROR_MSG);
 		return;
-		
-	case PARSE_EXIT:
-		puts("logout");
-		vec_free(p_vec, token_vec_clear_policy);
-		exit(EXIT_SUCCESS);
 	}
 	if (global_num_commands == 1) {
 		command_t command;
@@ -490,14 +514,14 @@ int vec_push(vec_t * p_vec, const void * p_element) {
 		memcpy(p_vec->data + p_vec->npos * elem_size, p_element, elem_size);
 		++p_vec->npos;
 	} else {
-		char * new_data = malloc(p_vec->len * vec_growth_rate);
+		char * new_data = malloc(p_vec->len * VEC_GROWTH_RATE);
 		if (!new_data) return 0;
 		memcpy(new_data, p_vec->data, p_vec->len);
 		free(p_vec->data);
 		p_vec->data = new_data;
 		memcpy(p_vec->data + p_vec->npos * elem_size, p_element, elem_size);
 		p_vec->npos += 1;
-		p_vec->len *= vec_growth_rate;
+		p_vec->len *= VEC_GROWTH_RATE;
 	}
 	return 1;
 }
@@ -517,31 +541,43 @@ void vec_free(vec_t * p_vec, void (* policy)(vec_t *)) {
 /* %{ */
 /* vec_t * p_global_lexer_target; */
 /* %} */
-
 /* %option noyywrap */
 /* %option nounput */
 /* %option noinput */
-
 /* %% */
-/* "<"|">"|"|"|"&"   { */
-/*                       char * tok = strdup(yytext); */
-/*                       vec_push(p_global_lexer_target, &tok); */
-/*                   } */
-/* [a-zA-Z0-9_/.-]+  { */
-/*                       char * tok = strdup(yytext); */
-/*                       vec_push(p_global_lexer_target, &tok); */
-/*                   } */
+/* "cd"                  { */
+/*                           char * tok = strdup(yytext); */
+/*                           vec_push(p_global_lexer_target, &tok); */
+/*                           global_builtin_idxs[CMD_CD] = global_num_commands - 1; */
+/*                           global_num_builtins += 1; */
+/*                       } */
+/* "exit"                { */
+/*                           char * tok = strdup(yytext); */
+/*                           vec_push(p_global_lexer_target, &tok); */
+/*                           global_builtin_idxs[CMD_EXIT] = global_num_commands - 1; */
+/*                           global_num_builtins += 1; */
+/*                       } */
+/* "|"                   { */
+/*                           char * tok = strdup(yytext); */
+/*                           vec_push(p_global_lexer_target, &tok); */
+/*                           global_num_commands += 1; */
+/*                       } */
+/* "<"|">"|"&"           { */
+/*                           char * tok = strdup(yytext); */
+/*                           vec_push(p_global_lexer_target, &tok); */
+/*                       } */
+/* [a-zA-Z0-9~@:_/.-]+   { */
+/*                           char * tok = strdup(yytext); */
+/*                           vec_push(p_global_lexer_target, &tok); */
+/*                       } */
 /* [ \n\t]+ /\* Ignore whitespace... *\/ */
 /* %% */
-
 /* YY_BUFFER_STATE global_buffer_state; */
-
 /* void lexer_set_target(vec_t * p_target) { */
 /*     p_global_lexer_target = p_target; */
 /* } */
-
 /* void lexer_parse_buffer(char * buffer) { */
-/*     yy_scan_buffer(buffer, read_buffer_size); */
+/*     yy_scan_buffer(buffer, READ_BUFFER_SIZE); */
 /*     yylex(); */
 /*     yy_delete_buffer(YY_CURRENT_BUFFER); */
 /* } */
@@ -910,8 +946,8 @@ static void yy_fatal_error (yyconst char msg[]  );
 	*yy_cp = '\0'; \
 	(yy_c_buf_p) = yy_cp;
 
-#define YY_NUM_RULES 5
-#define YY_END_OF_BUFFER 6
+#define YY_NUM_RULES 7
+#define YY_END_OF_BUFFER 8
 /* This struct is not used in this scanner,
    but its presence is necessary. */
 struct yy_trans_info
@@ -919,10 +955,10 @@ struct yy_trans_info
 	flex_int32_t yy_verify;
 	flex_int32_t yy_nxt;
 	};
-static yyconst flex_int16_t yy_accept[12] =
+static yyconst flex_int16_t yy_accept[18] =
     {   0,
-        0,    0,    6,    5,    4,    2,    3,    1,    4,    3,
-        0
+        0,    0,    8,    7,    6,    4,    5,    5,    5,    3,
+        6,    5,    1,    5,    5,    2,    0
     } ;
 
 static yyconst flex_int32_t yy_ec[256] =
@@ -936,11 +972,11 @@ static yyconst flex_int32_t yy_ec[256] =
         1,    6,    1,    4,    4,    4,    4,    4,    4,    4,
         4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
         4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
-        1,    1,    1,    1,    4,    1,    4,    4,    4,    4,
+        1,    1,    1,    1,    4,    1,    4,    4,    7,    8,
 
-        4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
-        4,    4,    4,    4,    4,    4,    4,    4,    4,    4,
-        4,    4,    1,    7,    1,    4,    1,    1,    1,    1,
+        9,    4,    4,    4,   10,    4,    4,    4,    4,    4,
+        4,    4,    4,    4,    4,   11,    4,    4,    4,   12,
+        4,    4,    1,   13,    1,    4,    1,    1,    1,    1,
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
@@ -957,33 +993,38 @@ static yyconst flex_int32_t yy_ec[256] =
         1,    1,    1,    1,    1
     } ;
 
-static yyconst flex_int32_t yy_meta[8] =
+static yyconst flex_int32_t yy_meta[14] =
     {   0,
-        1,    1,    1,    1,    1,    1,    1
+        1,    1,    1,    2,    1,    1,    2,    2,    2,    2,
+        2,    2,    1
     } ;
 
-static yyconst flex_int16_t yy_base[12] =
+static yyconst flex_int16_t yy_base[19] =
     {   0,
-        0,    0,   12,   13,    9,   13,    6,   13,    7,    4,
-       13
+        0,    0,   21,   22,   18,   22,    0,   11,    6,   22,
+       15,    0,    0,    6,    4,    0,   22,   12
     } ;
 
-static yyconst flex_int16_t yy_def[12] =
+static yyconst flex_int16_t yy_def[19] =
     {   0,
-       11,    1,   11,   11,   11,   11,   11,   11,   11,   11,
-        0
+       17,    1,   17,   17,   17,   17,   18,   18,   18,   17,
+       17,   18,   18,   18,   18,   18,    0,   17
     } ;
 
-static yyconst flex_int16_t yy_nxt[21] =
+static yyconst flex_int16_t yy_nxt[36] =
     {   0,
-        4,    5,    6,    7,    6,    6,    8,   10,    9,   10,
-        9,   11,    3,   11,   11,   11,   11,   11,   11,   11
+        4,    5,    6,    7,    6,    6,    8,    7,    9,    7,
+        7,    7,   10,   12,   16,   15,   11,   14,   13,   11,
+       17,    3,   17,   17,   17,   17,   17,   17,   17,   17,
+       17,   17,   17,   17,   17
     } ;
 
-static yyconst flex_int16_t yy_chk[21] =
+static yyconst flex_int16_t yy_chk[36] =
     {   0,
-        1,    1,    1,    1,    1,    1,    1,   10,    9,    7,
-        5,    3,   11,   11,   11,   11,   11,   11,   11,   11
+        1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
+        1,    1,    1,   18,   15,   14,   11,    9,    8,    5,
+        3,   17,   17,   17,   17,   17,   17,   17,   17,   17,
+       17,   17,   17,   17,   17
     } ;
 
 static yy_state_type yy_last_accepting_state;
@@ -1004,7 +1045,7 @@ char *yytext;
 #line 2 "lexer.l"
 vec_t * p_global_lexer_target;
 #define YY_NO_INPUT 1
-#line 461 "lex.yy.c"
+#line 466 "lex.yy.c"
 
 #define INITIAL 0
 
@@ -1186,7 +1227,7 @@ YY_DECL
     
 #line 9 "lexer.l"
 
-#line 643 "lex.yy.c"
+#line 648 "lex.yy.c"
 
 	if ( !(yy_init) )
 		{
@@ -1239,13 +1280,13 @@ yy_match:
 			while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 				{
 				yy_current_state = (int) yy_def[yy_current_state];
-				if ( yy_current_state >= 12 )
+				if ( yy_current_state >= 18 )
 					yy_c = yy_meta[(unsigned int) yy_c];
 				}
 			yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
 			++yy_cp;
 			}
-		while ( yy_base[yy_current_state] != 13 );
+		while ( yy_base[yy_current_state] != 22 );
 
 yy_find_action:
 		yy_act = yy_accept[yy_current_state];
@@ -1275,37 +1316,57 @@ YY_RULE_SETUP
 {
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
-                          global_num_commands += 1;
+                          global_builtin_idxs[CMD_CD] = global_num_commands - 1;
+                          global_num_builtins += 1;
                       }
 	YY_BREAK
 case 2:
 YY_RULE_SETUP
-#line 15 "lexer.l"
+#line 16 "lexer.l"
 {
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
+                          global_builtin_idxs[CMD_EXIT] = global_num_commands - 1;
+                          global_num_builtins += 1;
                       }
 	YY_BREAK
 case 3:
 YY_RULE_SETUP
-#line 19 "lexer.l"
+#line 22 "lexer.l"
+{
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                          global_num_commands += 1;
+                      }
+	YY_BREAK
+case 4:
+YY_RULE_SETUP
+#line 27 "lexer.l"
 {
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
                       }
 	YY_BREAK
-case 4:
-/* rule 4 can match eol */
-YY_RULE_SETUP
-#line 23 "lexer.l"
-/* Ignore whitespace... */
-	YY_BREAK
 case 5:
 YY_RULE_SETUP
-#line 24 "lexer.l"
+#line 31 "lexer.l"
+{
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                      }
+	YY_BREAK
+case 6:
+/* rule 6 can match eol */
+YY_RULE_SETUP
+#line 35 "lexer.l"
+/* Ignore whitespace... */
+	YY_BREAK
+case 7:
+YY_RULE_SETUP
+#line 36 "lexer.l"
 ECHO;
 	YY_BREAK
-#line 762 "lex.yy.c"
+#line 787 "lex.yy.c"
 case YY_STATE_EOF(INITIAL):
 	yyterminate();
 
@@ -1597,7 +1658,7 @@ static int yy_get_next_buffer (void)
 		while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 			{
 			yy_current_state = (int) yy_def[yy_current_state];
-			if ( yy_current_state >= 12 )
+			if ( yy_current_state >= 18 )
 				yy_c = yy_meta[(unsigned int) yy_c];
 			}
 		yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
@@ -1625,11 +1686,11 @@ static int yy_get_next_buffer (void)
 	while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 		{
 		yy_current_state = (int) yy_def[yy_current_state];
-		if ( yy_current_state >= 12 )
+		if ( yy_current_state >= 18 )
 			yy_c = yy_meta[(unsigned int) yy_c];
 		}
 	yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
-	yy_is_jam = (yy_current_state == 11);
+	yy_is_jam = (yy_current_state == 17);
 
 	return yy_is_jam ? 0 : yy_current_state;
 }
@@ -2265,7 +2326,7 @@ void yyfree (void * ptr )
 
 #define YYTABLES_NAME "yytables"
 
-#line 24 "lexer.l"
+#line 36 "lexer.l"
 
 
 
@@ -2276,7 +2337,7 @@ void lexer_set_target(vec_t * p_target) {
 }
 
 void lexer_parse_buffer(char * buffer) {
-    yy_scan_buffer(buffer,read_buffer_size);
+    yy_scan_buffer(buffer, READ_BUFFER_SIZE);
     yylex();
     yy_delete_buffer(YY_CURRENT_BUFFER);
 }

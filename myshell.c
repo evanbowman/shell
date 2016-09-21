@@ -79,6 +79,7 @@ char ** slice_argv_from_vec(vec_t *, const size_t, const size_t);
 void print_intro_msg();
 
 int global_num_pipes;
+int global_num_commands = 1;
 bool global_print_shell_context = true;
 bool global_bkg_proc = false;
 
@@ -128,6 +129,7 @@ void print_intro_msg() {
 }
 
 void shell_read(char * buffer, vec_t * p_vec) {
+	global_num_commands = 1;
 	if (fgets(buffer, read_buffer_size, stdin) != NULL) {
 		lexer_parse_buffer(buffer);
 		return;
@@ -177,7 +179,6 @@ int parse_builtin_cmds(vec_t * p_vec) {
 static const char * PARSE_ERROR_MSG = "ERROR: failed to parse input line";
 
 void shell_eval(vec_t * p_vec) {
-	char ** vec_contents = (char **)p_vec->data;
 	if (p_vec->npos == 0) return; /* special case, no parse error */
 	int prs_bltn_stat = parse_builtin_cmds(p_vec);
 	switch (prs_bltn_stat) {
@@ -190,13 +191,7 @@ void shell_eval(vec_t * p_vec) {
 		vec_free(p_vec, token_vec_clear_policy);
 		exit(EXIT_SUCCESS);
 	}
-	/* check if there are multiple commands in the input line */
-	int num_commands = 1;
-	for (size_t idx = 0; idx < p_vec->npos; idx += 1) {
-		const char first_char = vec_contents[idx][0];
-		if (first_char == '|') num_commands += 1;
-	}
-	if (num_commands == 1) {
+	if (global_num_commands == 1) {
 		command_t command;
 		memset(&command, 0, sizeof(command_t));
 		const int res = parse_single_command(p_vec, &command);
@@ -915,8 +910,8 @@ static void yy_fatal_error (yyconst char msg[]  );
 	*yy_cp = '\0'; \
 	(yy_c_buf_p) = yy_cp;
 
-#define YY_NUM_RULES 4
-#define YY_END_OF_BUFFER 5
+#define YY_NUM_RULES 5
+#define YY_END_OF_BUFFER 6
 /* This struct is not used in this scanner,
    but its presence is necessary. */
 struct yy_trans_info
@@ -924,9 +919,10 @@ struct yy_trans_info
 	flex_int32_t yy_verify;
 	flex_int32_t yy_nxt;
 	};
-static yyconst flex_int16_t yy_accept[11] =
+static yyconst flex_int16_t yy_accept[12] =
     {   0,
-        0,    0,    5,    4,    3,    1,    2,    3,    2,    0
+        0,    0,    6,    5,    4,    2,    3,    1,    4,    3,
+        0
     } ;
 
 static yyconst flex_int32_t yy_ec[256] =
@@ -966,26 +962,28 @@ static yyconst flex_int32_t yy_meta[8] =
         1,    1,    1,    1,    1,    1,    1
     } ;
 
-static yyconst flex_int16_t yy_base[11] =
+static yyconst flex_int16_t yy_base[12] =
     {   0,
-        0,    0,   12,   13,    9,   13,    6,    7,    4,   13
+        0,    0,   12,   13,    9,   13,    6,   13,    7,    4,
+       13
     } ;
 
-static yyconst flex_int16_t yy_def[11] =
+static yyconst flex_int16_t yy_def[12] =
     {   0,
-       10,    1,   10,   10,   10,   10,   10,   10,   10,    0
+       11,    1,   11,   11,   11,   11,   11,   11,   11,   11,
+        0
     } ;
 
 static yyconst flex_int16_t yy_nxt[21] =
     {   0,
-        4,    5,    6,    7,    6,    6,    6,    9,    8,    9,
-        8,   10,    3,   10,   10,   10,   10,   10,   10,   10
+        4,    5,    6,    7,    6,    6,    8,   10,    9,   10,
+        9,   11,    3,   11,   11,   11,   11,   11,   11,   11
     } ;
 
 static yyconst flex_int16_t yy_chk[21] =
     {   0,
-        1,    1,    1,    1,    1,    1,    1,    9,    8,    7,
-        5,    3,   10,   10,   10,   10,   10,   10,   10,   10
+        1,    1,    1,    1,    1,    1,    1,   10,    9,    7,
+        5,    3,   11,   11,   11,   11,   11,   11,   11,   11
     } ;
 
 static yy_state_type yy_last_accepting_state;
@@ -1006,7 +1004,7 @@ char *yytext;
 #line 2 "lexer.l"
 vec_t * p_global_lexer_target;
 #define YY_NO_INPUT 1
-#line 458 "lex.yy.c"
+#line 461 "lex.yy.c"
 
 #define INITIAL 0
 
@@ -1188,7 +1186,7 @@ YY_DECL
     
 #line 9 "lexer.l"
 
-#line 640 "lex.yy.c"
+#line 643 "lex.yy.c"
 
 	if ( !(yy_init) )
 		{
@@ -1241,7 +1239,7 @@ yy_match:
 			while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 				{
 				yy_current_state = (int) yy_def[yy_current_state];
-				if ( yy_current_state >= 11 )
+				if ( yy_current_state >= 12 )
 					yy_c = yy_meta[(unsigned int) yy_c];
 				}
 			yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
@@ -1277,28 +1275,37 @@ YY_RULE_SETUP
 {
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
+                          global_num_commands += 1;
                       }
 	YY_BREAK
 case 2:
 YY_RULE_SETUP
-#line 14 "lexer.l"
+#line 15 "lexer.l"
 {
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
                       }
 	YY_BREAK
 case 3:
-/* rule 3 can match eol */
-YY_RULE_SETUP
-#line 18 "lexer.l"
-/* Ignore whitespace... */
-	YY_BREAK
-case 4:
 YY_RULE_SETUP
 #line 19 "lexer.l"
+{
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                      }
+	YY_BREAK
+case 4:
+/* rule 4 can match eol */
+YY_RULE_SETUP
+#line 23 "lexer.l"
+/* Ignore whitespace... */
+	YY_BREAK
+case 5:
+YY_RULE_SETUP
+#line 24 "lexer.l"
 ECHO;
 	YY_BREAK
-#line 750 "lex.yy.c"
+#line 762 "lex.yy.c"
 case YY_STATE_EOF(INITIAL):
 	yyterminate();
 
@@ -1590,7 +1597,7 @@ static int yy_get_next_buffer (void)
 		while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 			{
 			yy_current_state = (int) yy_def[yy_current_state];
-			if ( yy_current_state >= 11 )
+			if ( yy_current_state >= 12 )
 				yy_c = yy_meta[(unsigned int) yy_c];
 			}
 		yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
@@ -1618,11 +1625,11 @@ static int yy_get_next_buffer (void)
 	while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 		{
 		yy_current_state = (int) yy_def[yy_current_state];
-		if ( yy_current_state >= 11 )
+		if ( yy_current_state >= 12 )
 			yy_c = yy_meta[(unsigned int) yy_c];
 		}
 	yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
-	yy_is_jam = (yy_current_state == 10);
+	yy_is_jam = (yy_current_state == 11);
 
 	return yy_is_jam ? 0 : yy_current_state;
 }
@@ -2258,7 +2265,7 @@ void yyfree (void * ptr )
 
 #define YYTABLES_NAME "yytables"
 
-#line 19 "lexer.l"
+#line 24 "lexer.l"
 
 
 

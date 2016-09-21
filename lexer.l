@@ -7,7 +7,12 @@ vec_t * p_global_lexer_target;
 %option noinput
 
 %%
-"<"|">"|"|"|"&"       {
+"|"                   {
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                          global_num_commands += 1;
+                      }
+"<"|">"|"&"           {
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
                       }

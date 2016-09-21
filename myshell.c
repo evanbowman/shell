@@ -15,6 +15,7 @@
 /* ========================================================================== */
 
 #define _POSIX_C_SOURCE 1
+#include <sys/param.h>
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <stdbool.h>
@@ -23,6 +24,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
+#include <pwd.h>
 
 char * strdup(const char * str) {
 	const size_t len = strlen(str);
@@ -78,12 +81,13 @@ int parse_single_command(vec_t *, command_t *);
 int parse_multiple_commands(vec_t * restrict, vec_t * restrict);
 char ** slice_argv_from_vec(vec_t *, const size_t, const size_t);
 void print_intro_msg();
+void disp_prompt();
 
 int global_num_pipes;
 int global_num_commands = 1;
 bool global_print_shell_context = true;
 bool global_bkg_proc = false;
-int global_builtin_idxs[NUM_BUILTINS] = {-1, -1};
+int global_builtin_idxs[NUM_BUILTINS];
 int global_num_builtins = 0;
 
 void token_vec_clear_policy(vec_t * p_vec) {
@@ -114,20 +118,25 @@ int main(int argc, char ** argv) {
 	lexer_set_target(&token_vec);
     if (global_print_shell_context) print_intro_msg();
 	while (true) {
-		if (global_print_shell_context) printf("shell$ ");
+		if (global_print_shell_context) disp_prompt();
 		shell_read(buffer, &token_vec);
 	    shell_eval(&token_vec);
 		vec_clear(&token_vec, token_vec_clear_policy);
 	}
 }
 
+void disp_prompt() {
+	printf("%s$ ", getlogin());
+}
+
 void print_intro_msg() {
-	char * usr_name = getlogin();
-	if (!usr_name) {
-		puts("ERROR: could not get user name");
-		return;
-	}
-	printf("Hello, %s\n", usr_name);
+	time_t current_time;
+	struct tm * time_info;
+	char time_str[9];
+	time(&current_time);
+	time_info = localtime(&current_time);
+	strftime(time_str, sizeof(time_str), "%H:%M:%S", time_info);
+    printf("login by %s, at %s\n", getlogin(), time_str);
 }
 
 void shell_read(char * buffer, vec_t * p_vec) {
@@ -135,7 +144,7 @@ void shell_read(char * buffer, vec_t * p_vec) {
 	global_num_builtins = 0;
 	memset(global_builtin_idxs, -1, 2 * sizeof(int));
 	memset(buffer, 0, READ_BUFFER_SIZE);
-	if (fgets(buffer, READ_BUFFER_SIZE, stdin) != NULL) {
+	if (fgets(buffer, READ_BUFFER_SIZE, stdin)) {
 		lexer_parse_buffer(buffer);
 		return;
 	}
@@ -172,10 +181,8 @@ enum _builtin {
 int parse_builtin_cmds(vec_t * p_vec) {
 	/* more than two commands without a pipe should alse be an error */
 	if (global_num_builtins > 1) return PARSE_ERROR;
-	if (global_num_builtins == 1) {
-		if (global_num_commands > 1) {
-			return PARSE_ERROR;
-		}
+	if (global_num_builtins == 1 && global_num_commands > 1) {
+		return PARSE_ERROR;
 	}
 	for (int i = 0; i < NUM_BUILTINS; i += 1) {
 	    if (global_builtin_idxs[i] > 1) {
@@ -193,9 +200,29 @@ void eval_builtin_cmds(vec_t * p_vec) {
 				vec_free(p_vec, token_vec_clear_policy);
 				puts("logout");
 				exit(EXIT_SUCCESS);
-
+				
 			case CMD_CD:
-				puts("ERROR: cd unsupported");
+			    switch (p_vec->npos) {
+				case 1: {
+					char * home_dir = getenv("HOME");
+					if (!home_dir) {
+						struct passwd * pw = getpwuid(getuid());
+						home_dir = pw->pw_dir;
+					}
+					int res = chdir(home_dir);
+					if (res == -1) perror("ERROR: cd");
+				    } break;
+					
+				case 2: {
+					char ** vec_contents = (char **)p_vec->data;
+					int res = chdir(vec_contents[1]);
+					if (res == -1) perror("ERROR: cd");
+					} break;
+					
+				default:
+					puts("ERROR: usage: cd <dir>");
+					break;
+				}
 				break;
 			}
 		}
@@ -205,7 +232,7 @@ void eval_builtin_cmds(vec_t * p_vec) {
 static const char * PARSE_ERROR_MSG = "ERROR: invalid input";
 
 void shell_eval(vec_t * p_vec) {
-	/* special case, no parse error */
+	/* special case, no parse error when the input contains nothing */
 	if (p_vec->npos == 0) return;
 	int prs_res = parse_builtin_cmds(p_vec);
 	if (prs_res != PARSE_ERROR && global_num_builtins != 0) {
@@ -476,11 +503,11 @@ int launch_process(command_t * p_command, const int options, int fd[], int idx) 
 			close(fd[i]);
 		}
 		execvp(p_command->argv[0], p_command->argv);
-		printf("ERROR: failed to exec %s\n", p_command->argv[0]);
+		perror("ERROR: exec");
 		exit(EXIT_FAILURE);
 		
 	case error:
-		printf("ERROR: fork failed\n");
+	    perror("ERROR: fork");
 		return error;
 	}
 	return pid;

@@ -63,6 +63,7 @@ enum {
 };
 
 /* INTERFACE WITH FLEX SCANNER */
+extern FILE * yyin, * yyout;
 void lexer_set_target(vec_t *);
 void lexer_parse_buffer(char *);
 
@@ -149,7 +150,7 @@ void shell_read(char * buffer, vec_t * p_vec) {
 		return;
 	}
 	vec_free(p_vec, token_vec_clear_policy);
-	puts("logout");
+	if (yyout) fclose(yyout);
 	exit(EXIT_SUCCESS);
 }
 
@@ -198,7 +199,7 @@ void eval_builtin_cmds(vec_t * p_vec) {
 			switch (i) {
 			case CMD_EXIT:
 				vec_free(p_vec, token_vec_clear_policy);
-				puts("logout");
+				if (yyout) fclose(yyout);
 				exit(EXIT_SUCCESS);
 				
 			case CMD_CD:
@@ -445,7 +446,7 @@ void launch_process_chain(vec_t * p_vec) {
 	}
 	int pids[num_commands];
 	int status;
-	memset(pids, 0, num_commands * sizeof(int));
+ 	memset(pids, 0, num_commands * sizeof(int));
 	/* launch the first process, it cannot have input piped in */
 	pids[0] = launch_process(&commands[0], PIPE_OUT, fd, 0);
 	for (idx = 1; idx < num_commands - 1; idx += 1) {
@@ -455,7 +456,7 @@ void launch_process_chain(vec_t * p_vec) {
 	for (idx = 0; idx < num_commands * 2; idx += 1) {
 		close(fd[idx]);
 	}
-    if (!global_bkg_proc) {
+	if (!global_bkg_proc) {
 		/* if not a bkg proc chain, wait for all of the commands to finish */
 		for (idx = 0; idx < num_commands; idx += 1) {
 			if (pids[idx]) {
@@ -526,9 +527,7 @@ char ** slice_argv_from_vec(vec_t * p_vec,
 
 int vec_init(vec_t * p_vec, const size_t elem_size) {
 	p_vec->data = calloc(1, elem_size);
-	if (!p_vec->data) {
-		return 0;
-	}
+	if (!p_vec->data) return 0;
 	p_vec->len = elem_size;
 	p_vec->npos = 0;
 	p_vec->elem_size = elem_size;
@@ -539,7 +538,7 @@ int vec_push(vec_t * p_vec, const void * p_element) {
 	const size_t elem_size = p_vec->elem_size;
 	if (p_vec->len >= (p_vec->npos + 1) * elem_size) {
 		memcpy(p_vec->data + p_vec->npos * elem_size, p_element, elem_size);
-		++p_vec->npos;
+		p_vec->npos += 1;
 	} else {
 		char * new_data = malloc(p_vec->len * VEC_GROWTH_RATE);
 		if (!new_data) return 0;
@@ -769,8 +768,6 @@ typedef size_t yy_size_t;
 #endif
 
 extern yy_size_t yyleng;
-
-extern FILE *yyin, *yyout;
 
 #define EOB_ACT_CONTINUE_SCAN 0
 #define EOB_ACT_END_OF_FILE 1
@@ -1271,7 +1268,7 @@ YY_DECL
 			yyin = stdin;
 
 		if ( ! yyout )
-			yyout = stdout;
+			yyout = fopen(".flex_errors", "w");
 
 		if ( ! YY_CURRENT_BUFFER ) {
 			yyensure_buffer_stack ();
@@ -2271,7 +2268,7 @@ static int yy_init_globals (void)
 /* Defined in main.c */
 #ifdef YY_STDINIT
     yyin = stdin;
-    yyout = stdout;
+    yyout = fopen(".flex_errors", "w");
 #else
     yyin = (FILE *) 0;
     yyout = (FILE *) 0;

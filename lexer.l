@@ -19,15 +19,6 @@ vec_t * p_global_lexer_target;
                           global_builtin_idxs[CMD_EXIT] = global_num_commands - 1;
                           global_num_builtins += 1;
                       }
-"|"                   {
-                          char * tok = strdup(yytext);
-                          vec_push(p_global_lexer_target, &tok);
-                          global_num_commands += 1;
-                      }
-"<"|">"|"&"           {
-                          char * tok = strdup(yytext);
-                          vec_push(p_global_lexer_target, &tok);
-                      }
 \"(\\.|[^"])*\"       {
                           size_t len = strlen(yytext) - 2;
                           if (len > 0) {
@@ -36,6 +27,15 @@ vec_t * p_global_lexer_target;
                               tok[len] = '\0';
                               vec_push(p_global_lexer_target, &tok);
                           }
+                      }
+"|"                   {
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
+                          global_num_commands += 1;
+                      }
+"<"|">"|"&"           {
+                          char * tok = strdup(yytext);
+                          vec_push(p_global_lexer_target, &tok);
                       }
 [a-zA-Z0-9~@:_/\.-]+  {
                           char * tok = strdup(yytext);

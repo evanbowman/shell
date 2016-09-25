@@ -28,6 +28,15 @@ vec_t * p_global_lexer_target;
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
                       }
+\"(\\.|[^"])*\"       {
+                          size_t len = strlen(yytext) - 2;
+                          if (len > 0) {
+                              char * tok = malloc(len + 1);
+                              memcpy(tok, yytext + 1, len);
+                              tok[len] = '\0';
+                              vec_push(p_global_lexer_target, &tok);
+                          }
+                      }
 [a-zA-Z0-9~@:_/\.-]+  {
                           char * tok = strdup(yytext);
                           vec_push(p_global_lexer_target, &tok);
